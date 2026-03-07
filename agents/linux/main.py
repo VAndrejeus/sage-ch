@@ -3,7 +3,7 @@ from datetime import datetime, timezone
 from agents.common.utils.audit_logger import AuditLogger
 from agents.common.utils.json_writer import write_json
 from agents.linux.platform_detect import detect_platform
-
+from agents.linux.collectors.host_info import collect as collect_host_info
 
 def generate_output_path():
     """
@@ -28,11 +28,15 @@ def main():
     logger.info(f"Detected distro: {platform_info.get('distro_id', 'unknown')}")
     logger.info(f"Package manager: {platform_info.get('pkg_manager', 'unknown')}")
 
+    logger.info("Collecting Linux host information.")
+    host_info = collect_host_info()
+
     report = {
         "project": "SAGE-CH",
         "timestamp_utc": datetime.now(timezone.utc).isoformat(),
         "agent": {"os": "linux", "mode": "read-only"},
         "platform": platform_info,
+        "host_info": host_info,
     }
 
     logger.info("Writing JSON report.")
