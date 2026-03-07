@@ -4,13 +4,12 @@ from agents.common.utils.audit_logger import AuditLogger
 from agents.common.utils.json_writer import write_json
 from agents.linux.platform_detect import detect_platform
 from agents.linux.collectors.host_info import collect as collect_host_info
+from agents.linux.collectors.software_inventory import collect as collect_software_inventory
+from agents.linux.collectors.update_checker import collect as collect_update_status
 
 def generate_output_path():
-    """
-    Generates the endpoint report filename with timestamp metadata.
-    Format required by project design:
-    endpoint_report_YYYYMMDD_HHMM.json
-    """
+    #Generates the endpoint report filename with timestamp metadata endpoint_report_YYYYMMDD_HHMM.json
+
     timestamp = datetime.now(timezone.utc).strftime("%Y%m%d_%H%M")
     return f"agents/linux/output/endpoint_report_{timestamp}.json"
 
@@ -31,12 +30,20 @@ def main():
     logger.info("Collecting Linux host information.")
     host_info = collect_host_info()
 
+    logger.info("Collecting Linux software inventory.")
+    software_inventory = collect_software_inventory(platform_info)
+
+    logger.info("collecting Linux update status.")
+    update_status = collect_update_status(platform_info)
+
     report = {
         "project": "SAGE-CH",
         "timestamp_utc": datetime.now(timezone.utc).isoformat(),
         "agent": {"os": "linux", "mode": "read-only"},
         "platform": platform_info,
         "host_info": host_info,
+        "software_inventory": software_inventory,
+        "update status": update_status,
     }
 
     logger.info("Writing JSON report.")

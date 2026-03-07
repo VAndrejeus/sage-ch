@@ -142,9 +142,15 @@ def collect() -> Dict[str, Any]:
     default_gateway = _extract_default_gateway(ip_route_data)
     dns_servers = _extract_dns_servers()
 
+    os_name = "Linux"
+    os_version = os_release.get("PRETTY_NAME", "")
+    platform_string = platform.platform()
+
     return {
         "hostname": hostname,
-        "os_release": os_release,
+        "os_name": os_name,
+        "os_version": os_version,
+        "platform": platform_string,
         "kernel_version": kernel_version,
         "interfaces": interfaces,
         "default_gateway": default_gateway,

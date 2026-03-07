@@ -7,12 +7,18 @@ from agents.windows.collectors.host_info import collect as collect_host
 from agents.windows.collectors.software_inventory import collect as collect_software
 from agents.windows.collectors.update_checker import collect as collect_updates
 
+def generate_output_path() -> str:
+    # Generates a timestamped Windows endpoint report filename endpoint_report_YYYYMMDD_HHMM.json
+    
+    timestamp = datetime.now(timezone.utc).strftime("%Y%m%d_%H%M")
+    return f"agents/windows/output/endpoint_report_{timestamp}.json"
+
 def utc_now() -> str:
     return datetime.now(timezone.utc).isoformat()
 
 def main():
     output_dir = "agents/windows/output"
-    report_path = f"{output_dir}/endpoint_report.json"
+    report_path = generate_output_path()
     log_path = f"{output_dir}/agent_audit.log"
 
     logger = AuditLogger(log_path)

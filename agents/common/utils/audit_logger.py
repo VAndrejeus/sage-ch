@@ -3,7 +3,7 @@ from datetime import datetime, timezone
 
 
 class AuditLogger:
-    """Simple append-only audit logger."""
+    #Simple append-only audit logger.
 
     def __init__(self, log_path: str):
         self.log_path = log_path  # <-- this is what your file is missing

@@ -36,10 +36,8 @@ def _read_uninstall_key(root, path) -> List[Dict]:
 
 
 def collect() -> Dict:
-    """
-    Registry-based installed software inventory.
-    Read-only. Works on modern Windows builds.
-    """
+    #Registry-based installed software inventory. Read-only. Works on modern Windows builds.
+  
 
     software = []
 
