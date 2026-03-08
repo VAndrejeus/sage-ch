@@ -9,6 +9,7 @@ def _run(cmd: List[str]) -> str:
 def parse_ipconfig(raw: str) -> Dict:
     interfaces = []
     dns_servers = []
+    default_gateway = None
     current_iface = None
 
     for line in raw.splitlines():
@@ -20,24 +21,24 @@ def parse_ipconfig(raw: str) -> Dict:
             current_iface = {
                 "name": line.replace("adapter", "").replace(":","").strip(),
                 "mac_address": None,
-                "ipv4": None,
+                "ipv4": [],
+                "ipv6": [],
                 "subnet_mask": None,
-                "gateway": None,
                 "dhcp_enabled": None
             }
         elif "Physical Address" in line and current_iface:
             current_iface["mac_address"] = line.split(":")[-1].strip()
         
-        elif "IPV4 Address" in line and current_iface:
-            current_iface["ipv4"] = line.split(":")[-1].replace("(Preferred)", "").strip()
+        elif "IPv4 Address" in line and current_iface:
+            current_iface["ipv4"] = [line.split(":")[-1].replace("(Preferred)", "").strip()]
         
         elif "Subnet Mask" in line and current_iface:
             current_iface["subnet_mask"] = line.split(":")[-1].strip()
 
         elif "Default Gateway" in line and current_iface:
             gw = line.split(":")[-1].strip()
-            if gw:
-                current_iface["gateway"] = gw
+            if gw and not default_gateway:
+                default_gateway = gw
         
         elif "DHCP Enabled" in line and current_iface:
             current_iface["dhcp_enabled"] = "Yes" in line
@@ -53,8 +54,15 @@ def parse_ipconfig(raw: str) -> Dict:
     #Keep only interfaces that actually have an IP
     interfaces = [i for i in interfaces if i["ipv4"]]
 
+    default_gateway = None
+    for iface in interfaces:
+        if iface.get("gateway"):
+            default_gateway = iface["gateway"]
+            break
+
     return {
         "interfaces": interfaces,
+        "default_gateway": default_gateway,
         "dns_servers": dns_servers
     }
 
@@ -67,7 +75,7 @@ def collect() -> Dict:
         "os_version": platform.version(),
         "platform": platform.platform(),
         "network": parsed,
-        "eidence": {
+        "evidence": {
             "raw_ipconfig": raw
         }
     }

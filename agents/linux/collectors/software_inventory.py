@@ -40,7 +40,7 @@ def collect(platform_info: Dict[str, Any]) -> Dict[str, Any]:
             "method": "rpm -qa",
             "family": family,
             "total_detected": len(packages),
-            "packages": packages,
+            "items": packages,
             "evidence": {
                 "cmd": result["cmd"],
                 "ok": result["ok"],
@@ -57,7 +57,7 @@ def collect(platform_info: Dict[str, Any]) -> Dict[str, Any]:
             "method": "dpkg-query -W",
             "family": family,
             "total_detected": len(packages),
-            "packages": packages,
+            "items": packages,
             "evidence": {
                 "cmd": result["cmd"],
                 "ok": result["ok"],
@@ -69,6 +69,6 @@ def collect(platform_info: Dict[str, Any]) -> Dict[str, Any]:
         "method": "unsupported",
         "family": family,
         "total_detected": 0,
-        "packages": [],
+        "items": [],
         "note": "Unsupported or unknown Linux family for software inventory collection.",
     }

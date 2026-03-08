@@ -15,11 +15,18 @@ def collect() -> Dict:
 
         return {
             "method": "PowerShell Get-HotFix (latest InstalledOn)",
+            "updates_available": None,
+            "updates_count": None,
             "latest_hotfix_date": output if output else None,
+            "note": "",
+            "evidence": {},
         }
     except Exception as e:
         return {
             "method": "PowerShell Get-HotFix",
+            "updates_available": None,
+            "updates_count": None,
             "latest_hotfix_date": None,
-            "error": str(e),
+            "note": str(e),
+            "evidence": {},
         }

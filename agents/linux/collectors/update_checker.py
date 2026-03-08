@@ -34,7 +34,6 @@ def collect(platform_info: Dict[str, Any]) -> Dict[str, Any]:
 
         return {
             "method": "dnf check-update",
-            "family": family,
             "updates_available": updates_available,
             "updates_count": updates_count,
             "note": result["stderr"] if result["returncode"] not in [0, 100] else "",
@@ -68,7 +67,6 @@ def collect(platform_info: Dict[str, Any]) -> Dict[str, Any]:
 
         return {
             "method": "apt list --upgradable",
-            "family": family,
             "updates_available": updates_available,
             "updates_count": updates_count,
             "note": result["stderr"] if result["returncode"] != 0 else "",
@@ -81,7 +79,6 @@ def collect(platform_info: Dict[str, Any]) -> Dict[str, Any]:
 
     return {
         "method": "unsupported",
-        "family": family,
         "updates_available": None,
         "updates_count": None,
         "note": "Unsupported or unknown Linux family for update status collection.",

@@ -80,15 +80,17 @@ def _extract_interfaces(ip_addr_data: List[Dict[str, Any]]) -> List[Dict[str, An
             if family == "inet":
                 ipv4.append(local)
             elif family == "inet6":
-                ipv6.append(ocal)
+                ipv6.append(local)
             
         if name:
             interfaces.append(
                 {
                     "name": name,
-                    "mac": mac,
+                    "mac_address": mac,
                     "ipv4": ipv4,
                     "ipv6": ipv6,
+                    "subnet_mask": None,
+                    "dhcp_enabled": None,
                 }
             )
     return interfaces
@@ -145,20 +147,26 @@ def collect() -> Dict[str, Any]:
     os_name = "Linux"
     os_version = os_release.get("PRETTY_NAME", "")
     platform_string = platform.platform()
+    distro_id = os_release.get("ID", "")
+    distro_like = os_release.get("ID_LIKE", "").split() if os_release.get("ID_LIKE") else []
 
     return {
-        "hostname": hostname,
-        "os_name": os_name,
-        "os_version": os_version,
-        "platform": platform_string,
-        "kernel_version": kernel_version,
+    "hostname": hostname,
+    "os_name": os_name,
+    "os_version": os_version,
+    "platform": platform_string,
+    "kernel_version": kernel_version,
+    "distro_id": distro_id,
+    "distro_like": distro_like,
+    "network": {
         "interfaces": interfaces,
         "default_gateway": default_gateway,
         "dns_servers": dns_servers,
-        "evidence": {
-            "ip_addr_cmd": ip_addr_result["cmd"],
-            "ip_addr_ok": ip_addr_result["ok"],
-            "ip_route_cmd": ip_route_result["cmd"],
-            "ip_route_ok": ip_route_result["ok"],
-        },
-    }
+    },
+    "evidence": {
+        "ip_addr_cmd": ip_addr_result["cmd"],
+        "ip_addr_ok": ip_addr_result["ok"],
+        "ip_route_cmd": ip_route_result["cmd"],
+        "ip_route_ok": ip_route_result["ok"],
+    },
+}

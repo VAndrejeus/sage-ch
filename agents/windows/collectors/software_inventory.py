@@ -22,7 +22,8 @@ def _read_uninstall_key(root, path) -> List[Dict]:
                 version, _ = winreg.QueryValueEx(subkey, "DisplayVersion")
                 software_list.append({
                     "name": name,
-                    "version": version
+                    "version": version,
+                    "arch": None
                 })
             except FileNotFoundError:
                 pass
@@ -56,5 +57,5 @@ def collect() -> Dict:
     return {
         "method": "Windows Registry Uninstall Keys",
         "total_detected": len(software),
-        "software": software
+        "items": software
     }

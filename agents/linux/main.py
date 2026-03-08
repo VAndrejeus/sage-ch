@@ -40,7 +40,6 @@ def main():
         "project": "SAGE-CH",
         "timestamp_utc": datetime.now(timezone.utc).isoformat(),
         "agent": {"os": "linux", "mode": "read-only"},
-        "platform": platform_info,
         "host_info": host_info,
         "software_inventory": software_inventory,
         "update status": update_status,
