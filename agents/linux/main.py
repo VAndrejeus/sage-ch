@@ -42,7 +42,7 @@ def main():
         "agent": {"os": "linux", "mode": "read-only"},
         "host_info": host_info,
         "software_inventory": software_inventory,
-        "update status": update_status,
+        "update_status": update_status,
     }
 
     logger.info("Writing JSON report.")
