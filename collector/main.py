@@ -5,6 +5,8 @@ from agents.common.utils.json_writer import write_json
 
 from collector.ingestion.report_loader import load_reports
 from collector.validation.schema_validator import validate_report
+from collector.normalization.normalizer import normalize_report
+from collector.graph.graph_builder import build_graph
 def generate_output_path() -> str:
   
     #generates consolidated_dataset_YYYYMMDD_HHMM.json
@@ -52,6 +54,19 @@ def main():
     logger.info(f"Validated {len(validated_reports)} report(s).")
     logger.info(f"Valid reports: {len(valid_reports)}")
     logger.info(f"Invalid reports: {len(invalid_reports)}")
+  
+    logger.info("Normalizing valid reports.")
+    normalized_hosts = []
+
+    for report_result in valid_reports:
+        normalized = normalize_report(
+            report_result["data"],
+            report_result["path"]
+        )
+        normalized_hosts.append(normalized)
+
+    logger.info(f"Normalized {len(normalized_hosts)} host record(s).")
+    graph = build_graph(normalized_hosts)
 
     logger.info("Initializing placeholder consolidated dataset.")
     consolidated = {
@@ -63,11 +78,8 @@ def main():
         "validated_reports": validated_reports,
         "valid_report_count": len(valid_reports),
         "invalid_report_count": len(invalid_reports),
-        "hosts": [],
-        "graph": {
-            "nodes": [],
-            "edges": []
-        }
+        "hosts": normalized_hosts,
+        "graph": graph
     }
 
     logger.info("Writing placeholder consolidated dataset.")
