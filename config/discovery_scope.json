@@ -1,0 +1,6 @@
+{
+  "authorized_networks": ["*"], 
+  "authorized_interfaces": ["*"],
+  "max_hosts_per_subnet": 1024,
+  "private_only": true
+}

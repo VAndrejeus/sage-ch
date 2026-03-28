@@ -14,6 +14,7 @@ from collector.normalization.normalizer import normalize_report
 from collector.normalization.discovery_normalizer import normalize_discovered_hosts
 from collector.correlation.host_correlator import correlate_hosts
 from collector.graph.graph_builder import build_graph
+from collector.alignment.uckg_aligner import align_graph_to_uckg
 
 
 def generate_output_path() -> str:
@@ -125,6 +126,14 @@ def main():
         correlation_results
     )
 
+    logger.info("Aligning graph to basic UCKG schema.")
+    uckg_aligned_graph = align_graph_to_uckg(graph)
+    logger.info(
+        f"UCKG alignment complete. "
+        f"Aligned nodes: {uckg_aligned_graph['summary']['node_count']}, "
+        f"aligned edges: {uckg_aligned_graph['summary']['edge_count']}"
+    )
+
     logger.info("Initializing placeholder consolidated dataset.")
     consolidated = {
         "project": "SAGE-CH",
@@ -141,7 +150,9 @@ def main():
         "discovered_hosts": discovered_hosts,
         "normalized_discovered_hosts": normalized_discovered_hosts,
         "correlation_results": correlation_results,
-        "graph": graph
+        "graph": graph,
+        "uckg_alignment_status": "basic_alignment_complete",
+        "uckg_aligned_graph": uckg_aligned_graph
     }
 
     logger.info("Writing placeholder consolidated dataset.")

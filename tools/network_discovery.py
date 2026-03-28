@@ -1,31 +1,13 @@
-"""
-Standalone non-intrusive network discovery script.
-
-What it does:
-- Enumerates active local IPv4 interfaces
-- Ignores loopback and common virtual/tunnel/container interfaces
-- Derives directly connected subnets
-- Performs lightweight host/service discovery with TCP connect()
-- Writes one JSON file containing all discovered hosts for the scan
-Notes:
-- This is intentionally conservative and non-intrusive.
-- It does NOT perform vulnerability scanning.
-- It does NOT attempt authentication or exploitation.
-- Service names are raw guesses; collector normalizes it later.
-"""
 
 from __future__ import annotations
 
 import json
-import os
 import platform
 import socket
-import subprocess
 import sys
-import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime, timezone
-from ipaddress import IPv4Interface, IPv4Network, ip_network
+from ipaddress import IPv4Interface, ip_network
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Set, Tuple
 
@@ -36,12 +18,9 @@ except ImportError:
     sys.exit(1)
 
 
-
-
 CONNECT_TIMEOUT = 0.35
 MAX_WORKERS = 128
 
-# Small, common, non-intrusive attack-surface-oriented port set
 TARGET_PORTS: List[Tuple[int, str]] = [
     (22, "tcp"),
     (23, "tcp"),
@@ -66,9 +45,8 @@ TARGET_PORTS: List[Tuple[int, str]] = [
     (8443, "tcp"),
 ]
 
-# Common interface prefixes/names to ignore
 IGNORED_INTERFACE_PREFIXES = (
-    "lo",          # loopback
+    "lo",
     "loopback",
     "docker",
     "veth",
@@ -76,17 +54,14 @@ IGNORED_INTERFACE_PREFIXES = (
     "virbr",
     "vmnet",
     "vboxnet",
-    "zt",          # ZeroTier
+    "zt",
     "tun",
     "tap",
     "tailscale",
-    "wg",          # WireGuard
+    "wg",
     "utun",
     "ham",
 )
-
-PRIVATE_ONLY = True
-MAX_HOSTS_PER_SUBNET = 1024  # safety cap
 
 
 def utc_now_iso() -> str:
@@ -102,10 +77,6 @@ def safe_hostname_lookup(ip: str) -> Optional[str]:
 
 
 def guess_service_name(port: int, protocol: str) -> str:
-    """
-    Raw service guess only.
-    Collector should normalize later if needed.
-    """
     known = {
         (22, "tcp"): "ssh",
         (23, "tcp"): "telnet",
@@ -143,24 +114,67 @@ def is_interface_up(name: str) -> bool:
     return bool(st and st.isup)
 
 
-def is_private_ipv4(addr: str) -> bool:
-    try:
-        return ip_network(f"{addr}/32", strict=False).is_private
-    except Exception:
-        return False
+def load_discovery_scope(config_path: Path) -> Dict[str, Any]:
+    if not config_path.exists():
+        raise FileNotFoundError(f"Discovery scope config not found: {config_path}")
+
+    with config_path.open("r", encoding="utf-8") as f:
+        data = json.load(f)
+
+    authorized_networks = data.get("authorized_networks", [])
+    authorized_interfaces = data.get("authorized_interfaces", [])
+    max_hosts_per_subnet = data.get("max_hosts_per_subnet", 1024)
+    private_only = data.get("private_only", True)
+
+    if not isinstance(authorized_networks, list) or not authorized_networks:
+        raise ValueError("authorized_networks must be a non-empty list.")
+
+    if not isinstance(authorized_interfaces, list) or not authorized_interfaces:
+        raise ValueError("authorized_interfaces must be a non-empty list.")
+
+    allow_all_networks = "*" in authorized_networks
+    allow_all_interfaces = "*" in authorized_interfaces
+
+    parsed_networks = []
+    if allow_all_networks:
+        parsed_networks = ["*"]
+    else:
+        for cidr in authorized_networks:
+            parsed_networks.append(str(ip_network(cidr, strict=False)))
+
+    if not isinstance(max_hosts_per_subnet, int) or max_hosts_per_subnet < 1:
+        raise ValueError("max_hosts_per_subnet must be a positive integer.")
+
+    if not isinstance(private_only, bool):
+        raise ValueError("private_only must be true or false.")
+
+    return {
+        "authorized_networks": parsed_networks,
+        "authorized_interfaces": authorized_interfaces,
+        "allow_all_networks": allow_all_networks,
+        "allow_all_interfaces": allow_all_interfaces,
+        "max_hosts_per_subnet": max_hosts_per_subnet,
+        "private_only": private_only,
+    }
 
 
-def get_local_ipv4_interfaces() -> List[Dict[str, Any]]:
-    """
-    Returns active, filtered IPv4 interfaces with subnet info.
-    """
+def get_local_ipv4_interfaces(scope: Dict[str, Any]) -> List[Dict[str, Any]]:
     interfaces: List[Dict[str, Any]] = []
     addrs = psutil.net_if_addrs()
+
+    authorized_networks = set(scope["authorized_networks"])
+    authorized_interfaces = set(scope["authorized_interfaces"])
+    allow_all_networks = scope["allow_all_networks"]
+    allow_all_interfaces = scope["allow_all_interfaces"]
+    max_hosts_per_subnet = scope["max_hosts_per_subnet"]
+    private_only = scope["private_only"]
 
     for if_name, if_addrs in addrs.items():
         if should_ignore_interface(if_name):
             continue
         if not is_interface_up(if_name):
+            continue
+        if not allow_all_interfaces and if_name not in authorized_interfaces:
             continue
 
         for addr in if_addrs:
@@ -174,8 +188,6 @@ def get_local_ipv4_interfaces() -> List[Dict[str, Any]]:
                 continue
             if ip.startswith("127."):
                 continue
-            if PRIVATE_ONLY and not is_private_ipv4(ip):
-                continue
 
             try:
                 iface = IPv4Interface(f"{ip}/{netmask}")
@@ -183,20 +195,25 @@ def get_local_ipv4_interfaces() -> List[Dict[str, Any]]:
             except Exception:
                 continue
 
-            host_count = network.num_addresses
-            if host_count > MAX_HOSTS_PER_SUBNET:
-                # safety skip for overly broad networks
+            if private_only and not network.is_private:
+                continue
+
+            network_cidr = str(network)
+
+            if not allow_all_networks and network_cidr not in authorized_networks:
+                continue
+
+            if network.num_addresses > max_hosts_per_subnet:
                 continue
 
             interfaces.append({
                 "interface": if_name,
                 "ip": str(iface.ip),
                 "netmask": str(iface.netmask),
-                "cidr": str(network),
+                "cidr": network_cidr,
                 "broadcast": str(network.broadcast_address),
             })
 
-    # Deduplicate if multiple entries map to same network
     seen: Set[Tuple[str, str]] = set()
     deduped: List[Dict[str, Any]] = []
     for item in interfaces:
@@ -212,8 +229,7 @@ def tcp_connect(ip: str, port: int, timeout: float) -> bool:
     s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
     s.settimeout(timeout)
     try:
-        result = s.connect_ex((ip, port))
-        return result == 0
+        return s.connect_ex((ip, port)) == 0
     except Exception:
         return False
     finally:
@@ -224,8 +240,7 @@ def probe_service(ip: str, port: int, protocol: str) -> Optional[Dict[str, Any]]
     if protocol != "tcp":
         return None
 
-    is_open = tcp_connect(ip, port, CONNECT_TIMEOUT)
-    if not is_open:
+    if not tcp_connect(ip, port, CONNECT_TIMEOUT):
         return None
 
     return {
@@ -273,15 +288,13 @@ def scan_subnet(cidr: str) -> List[Dict[str, Any]]:
                 if result:
                     discovered.append(result)
             except Exception:
-                # Keep scan resilient
                 continue
 
     discovered.sort(key=lambda x: tuple(int(part) for part in x["discovered_ip"].split(".")))
     return discovered
 
 
-
-def build_output(interfaces: List[Dict[str, Any]], discovered_hosts: List[Dict[str, Any]]) -> Dict[str, Any]:
+def build_output(scope: Dict[str, Any], interfaces: List[Dict[str, Any]], discovered_hosts: List[Dict[str, Any]]) -> Dict[str, Any]:
     scanned_networks = []
     for iface in interfaces:
         scanned_networks.append({
@@ -294,12 +307,20 @@ def build_output(interfaces: List[Dict[str, Any]], discovered_hosts: List[Dict[s
         "scan_metadata": {
             "project": "SAGE-CH",
             "scan_type": "network_discovery",
-            "scan_mode": "non_intrusive",
+            "scan_mode": "non_intrusive_allowlisted",
             "scanner_host": socket.gethostname(),
             "platform": platform.platform(),
-            "started_at": None,   # filled by main()
-            "completed_at": None, # filled by main()
+            "started_at": None,
+            "completed_at": None,
             "target_port_count": len(TARGET_PORTS),
+        },
+        "discovery_scope": {
+            "authorized_networks": scope["authorized_networks"],
+            "authorized_interfaces": scope["authorized_interfaces"],
+            "allow_all_networks": scope["allow_all_networks"],
+            "allow_all_interfaces": scope["allow_all_interfaces"],
+            "max_hosts_per_subnet": scope["max_hosts_per_subnet"],
+            "private_only": scope["private_only"],
         },
         "scanned_networks": scanned_networks,
         "discovered_hosts": discovered_hosts,
@@ -316,16 +337,39 @@ def write_output(data: Dict[str, Any], output_dir: Path) -> Path:
 
     return output_path
 
-def main() -> None:
-    start_time = utc_now_iso()
 
-    interfaces = get_local_ipv4_interfaces()
+def main() -> None:
+    project_root = Path.cwd()
+    config_path = project_root / "config" / "discovery_scope.json"
+    output_dir = project_root / "outputs" / "discovery"
+
+    start_time = utc_now_iso()
+    scope = load_discovery_scope(config_path)
+
+    interfaces = get_local_ipv4_interfaces(scope)
     if not interfaces:
-        print("No eligible active private IPv4 interfaces found.")
+        print("No eligible allowlisted active IPv4 interfaces/networks found.")
         sys.exit(0)
 
     unique_cidrs = sorted({item["cidr"] for item in interfaces})
-    print("Eligible networks:")
+
+    print("Discovery scope from config:")
+    if scope["allow_all_networks"]:
+        print("  authorized_networks: *")
+    else:
+        for cidr in scope["authorized_networks"]:
+            print(f"  authorized_network: {cidr}")
+
+    if scope["allow_all_interfaces"]:
+        print("  authorized_interfaces: *")
+    else:
+        for iface in scope["authorized_interfaces"]:
+            print(f"  authorized_interface: {iface}")
+
+    print(f"  max_hosts_per_subnet: {scope['max_hosts_per_subnet']}")
+    print(f"  private_only: {scope['private_only']}")
+
+    print("\nEligible allowlisted networks to scan:")
     for cidr in unique_cidrs:
         print(f"  - {cidr}")
 
@@ -335,19 +379,18 @@ def main() -> None:
         print(f"Scanning subnet: {cidr}")
         subnet_results = scan_subnet(cidr)
 
-        # Deduplicate discovered hosts across overlapping/duplicate scans by IP
         for host in subnet_results:
             ip = host["discovered_ip"]
             if ip not in all_discovered:
                 all_discovered[ip] = host
             else:
                 existing = all_discovered[ip]
-                existing_services = {
+                existing_keys = {
                     (s["port"], s["protocol"]) for s in existing["observed_services"]
                 }
                 for svc in host["observed_services"]:
                     key = (svc["port"], svc["protocol"])
-                    if key not in existing_services:
+                    if key not in existing_keys:
                         existing["observed_services"].append(svc)
 
     discovered_hosts = sorted(
@@ -355,11 +398,10 @@ def main() -> None:
         key=lambda x: tuple(int(part) for part in x["discovered_ip"].split("."))
     )
 
-    output = build_output(interfaces, discovered_hosts)
+    output = build_output(scope, interfaces, discovered_hosts)
     output["scan_metadata"]["started_at"] = start_time
     output["scan_metadata"]["completed_at"] = utc_now_iso()
 
-    output_dir = Path.cwd() / "outputs" / "discovery"
     output_path = write_output(output, output_dir)
 
     print("\nScan complete.")
