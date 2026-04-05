@@ -131,6 +131,112 @@ def map_evidence(rule: Any, host_record: Dict[str, Any]) -> List[Dict[str, Any]]
             "value": get_update_data(host_record),
             "reason": "Update status does not include update count fields.",
         })   
+    
+    elif condition == "uac_disabled":
+        evidence.append({
+            "field": "security_config.uac.enabled",
+            "value": host_record.get("security_config", {}).get("uac", {}).get("enabled"),
+            "reason": "UAC is disabled.",
+        })
+
+    elif condition == "firewall_disabled":
+        profiles = host_record.get("security_config", {}).get("firewall", {}).get("profiles", {})
+        evidence.append({
+            "field": "security_config.firewall.profiles",
+            "value": profiles,
+            "reason": "One or more firewall profiles are disabled.",
+        })
+
+    elif condition == "defender_realtime_disabled":
+        evidence.append({
+            "field": "security_config.defender.realtime_protection_enabled",
+            "value": host_record.get("security_config", {}).get("defender", {}).get("realtime_protection_enabled"),
+            "reason": "Defender realtime protection is disabled.",
+        })
+
+    elif condition == "guest_account_enabled":
+        evidence.append({
+            "field": "security_config.guest_account.disabled",
+            "value": host_record.get("security_config", {}).get("guest_account", {}).get("disabled"),
+            "reason": "Guest account is enabled.",
+        })
+
+    elif condition == "rdp_enabled":
+        evidence.append({
+            "field": "security_config.remote_desktop.disabled",
+            "value": host_record.get("security_config", {}).get("remote_desktop", {}).get("disabled"),
+            "reason": "Remote Desktop is enabled.",
+        })
+
+    elif condition == "autorun_enabled":
+        evidence.append({
+            "field": "security_config.autorun.disabled",
+            "value": host_record.get("security_config", {}).get("autorun", {}).get("disabled"),
+            "reason": "Autorun is not disabled.",
+        })
+
+    elif condition == "no_inactivity_timeout":
+        evidence.append({
+            "field": "security_config.inactivity_timeout",
+            "value": host_record.get("security_config", {}).get("inactivity_timeout"),
+            "reason": "No inactivity timeout configured.",
+        })
+
+    elif condition == "weak_inactivity_timeout":
+        evidence.append({
+            "field": "security_config.inactivity_timeout.seconds",
+            "value": host_record.get("security_config", {}).get("inactivity_timeout", {}).get("seconds"),
+            "reason": "Inactivity timeout exceeds recommended threshold.",
+        })
+
+    elif condition == "password_complexity_disabled":
+        evidence.append({
+            "field": "security_config.password_complexity.enabled",
+            "value": host_record.get("security_config", {}).get("password_complexity", {}).get("enabled"),
+            "reason": "Password complexity is disabled.",
+        })
+
+    elif condition == "weak_password_length":
+        evidence.append({
+            "field": "security_config.account_policy.minimum_password_length",
+            "value": host_record.get("security_config", {}).get("account_policy", {}).get("minimum_password_length"),
+            "reason": "Password length is below recommended minimum.",
+        })
+
+    elif condition == "weak_password_history":
+        evidence.append({
+            "field": "security_config.account_policy.password_history_length",
+            "value": host_record.get("security_config", {}).get("account_policy", {}).get("password_history_length"),
+            "reason": "Password history is below recommended minimum.",
+        })
+
+    elif condition == "weak_lockout_threshold":
+        evidence.append({
+            "field": "security_config.account_policy.lockout_threshold",
+            "value": host_record.get("security_config", {}).get("account_policy", {}).get("lockout_threshold"),
+            "reason": "Lockout threshold is not securely configured.",
+        })
+
+    elif condition == "missing_password_policy":
+        evidence.append({
+            "field": "security_config.account_policy",
+            "value": host_record.get("security_config", {}).get("account_policy"),
+            "reason": "Password policy data is missing or null.",
+        })
+
+    elif condition == "missing_password_complexity":
+        evidence.append({
+            "field": "security_config.password_complexity",
+            "value": host_record.get("security_config", {}).get("password_complexity"),
+            "reason": "Password complexity setting is missing.",
+        })
+
+    elif condition == "missing_autorun_config":
+        evidence.append({
+            "field": "security_config.autorun",
+            "value": host_record.get("security_config", {}).get("autorun"),
+            "reason": "Autorun configuration could not be determined.",
+        })
     return evidence
 
 

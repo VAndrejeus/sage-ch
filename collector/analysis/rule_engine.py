@@ -56,7 +56,7 @@ def rule_matches_host(rule: Any, host: Dict[str, Any]) -> bool:
             or is_blank(platform)
             or is_blank(primary_ip)
         )
-    
+
     if condition == "no_network_interfaces":
         interfaces = get_network_interfaces(host)
         return len(interfaces) == 0
@@ -79,6 +79,7 @@ def rule_matches_host(rule: Any, host: Dict[str, Any]) -> bool:
             update.get("updates_available") is None
             and update.get("updates_count") is None
         )
+
     if condition == "uckg_alignment_missing":
         uckg_entity_id = get_first_present(
             host,
@@ -90,7 +91,7 @@ def rule_matches_host(rule: Any, host: Dict[str, Any]) -> bool:
         interfaces = get_network_interfaces(host)
         threshold = rule.metadata.get("threshold", 10)
         return len(interfaces) > threshold
-    
+
     if condition == "no_default_gateway":
         network = host.get("network", {})
         gateway = network.get("default_gateway")
@@ -107,6 +108,176 @@ def rule_matches_host(rule: Any, host: Dict[str, Any]) -> bool:
             return True
         return update.get("updates_count") is None
 
+    if condition == "uac_disabled":
+        sc = host.get("security_config", {})
+        return sc.get("uac", {}).get("enabled") is False
+
+    if condition == "firewall_disabled":
+        profiles = host.get("security_config", {}).get("firewall", {}).get("profiles", {})
+        return any(
+            profiles.get(profile_name, {}).get("enabled") is False
+            for profile_name in ["domain", "private", "public"]
+        )
+
+    if condition == "defender_realtime_disabled":
+        sc = host.get("security_config", {})
+        return sc.get("defender", {}).get("realtime_protection_enabled") is False
+
+    if condition == "guest_account_enabled":
+        sc = host.get("security_config", {})
+        return sc.get("guest_account", {}).get("disabled") is False
+
+    if condition == "rdp_enabled":
+        sc = host.get("security_config", {})
+        return sc.get("remote_desktop", {}).get("disabled") is False
+
+    if condition == "autorun_enabled":
+        sc = host.get("security_config", {})
+        return sc.get("autorun", {}).get("disabled") is False
+
+    if condition == "no_inactivity_timeout":
+        sc = host.get("security_config", {})
+        return sc.get("inactivity_timeout", {}).get("configured") is False
+
+    if condition == "weak_inactivity_timeout":
+        timeout = host.get("security_config", {}).get("inactivity_timeout", {}).get("seconds")
+        return isinstance(timeout, int) and timeout > 900
+
+    if condition == "password_complexity_disabled":
+        sc = host.get("security_config", {})
+        return sc.get("password_complexity", {}).get("enabled") is False
+
+    if condition == "weak_password_length":
+        length = host.get("security_config", {}).get("account_policy", {}).get("minimum_password_length")
+        return isinstance(length, int) and length < 14
+
+    if condition == "weak_password_history":
+        history = host.get("security_config", {}).get("account_policy", {}).get("password_history_length")
+        return isinstance(history, int) and history < 24
+
+    if condition == "weak_lockout_threshold":
+        threshold = host.get("security_config", {}).get("account_policy", {}).get("lockout_threshold")
+        return isinstance(threshold, int) and (threshold == 0 or threshold > 10)
+    
+    if condition == "missing_password_policy":
+        policy = host.get("security_config", {}).get("account_policy", {})
+        return all(v is None for v in policy.values())
+
+    if condition == "missing_password_complexity":
+        pc = host.get("security_config", {}).get("password_complexity", {})
+        return pc.get("enabled") is None
+
+    if condition == "missing_autorun_config":
+        ar = host.get("security_config", {}).get("autorun", {})
+        return ar.get("disabled") is None
+    
+    if condition == "guest_account_present":
+        accounts = host.get("account_info", {}).get("accounts", [])
+        return any(a.get("username").lower() == "guest" for a in accounts)
+
+    if condition == "multiple_admin_accounts":
+        accounts = host.get("account_info", {}).get("accounts", [])
+        admins = [a for a in accounts if a.get("is_admin")]
+        return len(admins) > 2
+
+    if condition == "password_never_expires":
+        accounts = host.get("account_info", {}).get("accounts", [])
+        return any(a.get("password_never_expires") for a in accounts)
+
+    if condition == "disabled_accounts_present":
+        accounts = host.get("account_info", {}).get("accounts", [])
+        return any(not a.get("enabled") for a in accounts)
+    
+    if condition == "admin_accounts_exist":
+        accounts = host.get("account_info", {}).get("accounts", [])
+        return any(a.get("is_admin") for a in accounts)
+
+    if condition == "too_many_admins":
+        accounts = host.get("account_info", {}).get("accounts", [])
+        admins = [a for a in accounts if a.get("is_admin")]
+        return len(admins) > 2
+
+    if condition == "admin_account_without_password_expiry":
+        accounts = host.get("account_info", {}).get("accounts", [])
+        return any(a.get("is_admin") and a.get("password_never_expires") for a in accounts)
+    
+    if condition == "audit_logging_not_configured":
+        settings = host.get("audit_policy", {}).get("settings", [])
+        return len(settings) == 0
+
+    if condition == "no_logon_auditing":
+        settings = host.get("audit_policy", {}).get("settings", [])
+        return not any("Logon" in s.get("category", "") for s in settings)
+    
+    if condition == "risky_software_installed":
+        software = host.get("software_inventory", {}).get("items", [])
+        risky = ["chrome", "firefox", "edge"]
+
+        return any(
+            any(r in (item.get("name", "").lower()) for r in risky)
+            for item in software
+        )
+    
+    if condition == "defender_disabled":
+        defender = host.get("security_config", {}).get("defender", {})
+        return defender.get("antivirus_enabled") is False
+
+    if condition == "realtime_protection_disabled":
+        defender = host.get("security_config", {}).get("defender", {})
+        return defender.get("realtime_protection_enabled") is False
+
+    if condition == "antispyware_disabled":
+        defender = host.get("security_config", {}).get("defender", {})
+        return defender.get("antispyware_enabled") is False
+    
+    if condition == "no_backups_detected":
+        return not host.get("backup_info", {}).get("shadow_copies_present", False)
+    
+    if condition == "no_multiple_interfaces":
+        interfaces = host.get("host_info", {}).get("network", {}).get("interfaces", [])
+        return len(interfaces) < 1
+    
+    if condition == "no_security_tools_detected":
+        software = host.get("software_inventory", {}).get("items", [])
+        return not any(
+            "defender" in (s.get("name", "").lower()) or
+            "security" in (s.get("name", "").lower())
+            for s in software
+        )
+    
+    if condition == "third_party_software_present":
+        software = host.get("software_inventory", {}).get("items", [])
+        return any(
+            "vpn" in (s.get("name", "").lower()) or
+            "virtualbox" in (s.get("name", "").lower())
+            for s in software
+        )
+    
+    if condition == "many_installed_applications":
+        software = host.get("software_inventory", {}).get("items", [])
+        return len(software) > 50
+
+    if condition == "developer_tools_installed":
+        software = host.get("software_inventory", {}).get("items", [])
+        risky = ["python", "git", "wsl"]
+
+        return any(
+            any(r in (s.get("name", "").lower()) for r in risky)
+            for s in software
+        )
+    
+    if condition == "insufficient_audit_events":
+        settings = host.get("audit_policy", {}).get("settings", [])
+        return len(settings) < 5
+
+    if condition == "no_backup_and_logs":
+        backup = host.get("backup_info", {}).get("shadow_copies_present", False)
+        logs = host.get("audit_policy", {}).get("settings", [])
+        return not backup or len(logs) == 0
+    
+    if condition == "high_vulnerability_density":
+        findings = host.get("findings", [])
+        return len(findings) > 10
     return False
 
 
@@ -143,6 +314,7 @@ def get_platform(host: Dict[str, Any]) -> str:
         return "linux"
 
     return platform
+
 
 def get_primary_ip(host: Dict[str, Any]) -> str:
     direct_ip = get_first_present(

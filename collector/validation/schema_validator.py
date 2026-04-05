@@ -20,8 +20,6 @@ REQUIRED_HOST_INFO_FIELDS = [
 ]
 
 def _check_required_fields(obj: Dict[str, Any], required_fields: List[str], prefix: str) -> List[str]:
-
-    # Checks whether required fields exist in a dictionary. 
     errors: List[str] = []
 
     for field in required_fields:
@@ -31,9 +29,6 @@ def _check_required_fields(obj: Dict[str, Any], required_fields: List[str], pref
     return errors
 
 def validate_report(report: Dict[str, Any]) -> Dict[str, Any]:
-
-   # Performs minimal structural validation for an endpoint report.
-
     errors: List[str] = []
 
     if not isinstance(report, dict):

@@ -1,8 +1,6 @@
 from typing import Any, Dict, List
 
 def _build_host_id(report: Dict[str, Any]) -> str:
-    
-    #Builds a simple host identifier from agent OS and hostname.
     agent = report.get("agent", {})
     host_info = report.get("host_info", {})
 
@@ -12,11 +10,14 @@ def _build_host_id(report: Dict[str, Any]) -> str:
     return f"{os_name}-{hostname}"
 
 def normalize_report(report: Dict[str, Any], source_path: str) -> Dict[str, Any]:
-    # Normalizes one validated endpoint report into a unified host-centered structure.
     agent = report.get("agent", {})
     host_info = report.get("host_info", {})
     software_inventory = report.get("software_inventory", {})
     update_status = report.get("update_status", {})
+    security_config = report.get("security_config", {})
+    account_info = report.get("account_info", {})
+    audit_policy = report.get("audit_policy", {})
+    backup_info = report.get("backup_info", {})
 
     normalized = {
         "host_id": _build_host_id(report),
@@ -28,6 +29,10 @@ def normalize_report(report: Dict[str, Any], source_path: str) -> Dict[str, Any]
         "network": host_info.get("network", {}),
         "software": software_inventory.get("items", []),
         "update_status": update_status,
+        "security_config": security_config,
+        "account_info": account_info,
+        "audit_policy": audit_policy,
+        "backup_info": backup_info,
         "source_report": {
             "timestamp_utc": report.get("timestamp_utc"),
             "path": source_path,
