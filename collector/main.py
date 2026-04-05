@@ -16,10 +16,26 @@ from collector.correlation.host_correlator import correlate_hosts
 from collector.graph.graph_builder import build_graph
 from collector.alignment.uckg_aligner import align_graph_to_uckg
 
+from collector.analysis.rule_engine import evaluate_hosts
+from collector.analysis.report_generator import (
+    build_assessment_summary,
+    build_scoreboard_markdown,
+)
 
-def generate_output_path() -> str:
+
+def generate_output_paths() -> dict:
     timestamp = datetime.now(timezone.utc).strftime("%Y%m%d_%H%M")
-    return f"collector/output/consolidated_dataset_{timestamp}.json"
+    return {
+        "consolidated": f"collector/output/consolidated_dataset_{timestamp}.json",
+        "findings": f"collector/output/findings_dataset_{timestamp}.json",
+        "summary": f"collector/output/assessment_summary_{timestamp}.json",
+        "scoreboard": f"collector/output/scoreboard_report_{timestamp}.md",
+    }
+
+
+def write_text_file(path: str, content: str) -> None:
+    with open(path, "w", encoding="utf-8") as file_handle:
+        file_handle.write(content)
 
 
 INPUT_DIR = "collector/input"
@@ -134,12 +150,12 @@ def main():
         f"aligned edges: {uckg_aligned_graph['summary']['edge_count']}"
     )
 
-    logger.info("Initializing placeholder consolidated dataset.")
+    logger.info("Building consolidated dataset.")
     consolidated = {
         "project": "SAGE-CH",
         "timestamp_utc": datetime.now(timezone.utc).isoformat(),
         "component": "collector",
-        "status": "initialized",
+        "status": "complete",
         "loaded_reports": loaded_reports,
         "validated_reports": validated_reports,
         "valid_report_count": len(valid_reports),
@@ -155,9 +171,26 @@ def main():
         "uckg_aligned_graph": uckg_aligned_graph
     }
 
-    logger.info("Writing placeholder consolidated dataset.")
-    output_path = generate_output_path()
-    write_json(output_path, consolidated)
+    logger.info("Running Phase 5 analysis.")
+    findings = evaluate_hosts(normalized_hosts)
+    logger.info(f"Generated {len(findings)} finding(s).")
+
+    summary = build_assessment_summary(consolidated, findings)
+    scoreboard_markdown = build_scoreboard_markdown(consolidated, findings, summary)
+
+    outputs = generate_output_paths()
+
+    logger.info("Writing consolidated dataset.")
+    write_json(outputs["consolidated"], consolidated)
+
+    logger.info("Writing findings dataset.")
+    write_json(outputs["findings"], findings)
+
+    logger.info("Writing assessment summary.")
+    write_json(outputs["summary"], summary)
+
+    logger.info("Writing scoreboard markdown report.")
+    write_text_file(outputs["scoreboard"], scoreboard_markdown)
 
     logger.info("Collector execution complete.")
 
