@@ -56,7 +56,29 @@ def rule_matches_host(rule: Any, host: Dict[str, Any]) -> bool:
             or is_blank(platform)
             or is_blank(primary_ip)
         )
+    
+    if condition == "no_network_interfaces":
+        interfaces = get_network_interfaces(host)
+        return len(interfaces) == 0
 
+    if condition == "no_ipv4_address":
+        ip = get_primary_ip(host)
+        return is_blank(ip)
+
+    if condition == "no_dns_servers":
+        network = host.get("network", {})
+        dns = network.get("dns_servers", [])
+        return not isinstance(dns, list) or len(dns) == 0
+
+    if condition == "incomplete_update_status":
+        update = get_update_data(host)
+        if not isinstance(update, dict):
+            return True
+
+        return (
+            update.get("updates_available") is None
+            and update.get("updates_count") is None
+        )
     if condition == "uckg_alignment_missing":
         uckg_entity_id = get_first_present(
             host,
@@ -68,6 +90,22 @@ def rule_matches_host(rule: Any, host: Dict[str, Any]) -> bool:
         interfaces = get_network_interfaces(host)
         threshold = rule.metadata.get("threshold", 10)
         return len(interfaces) > threshold
+    
+    if condition == "no_default_gateway":
+        network = host.get("network", {})
+        gateway = network.get("default_gateway")
+        return gateway is None or str(gateway).strip() == ""
+
+    if condition == "no_dns_servers":
+        network = host.get("network", {})
+        dns_servers = network.get("dns_servers", [])
+        return not isinstance(dns_servers, list) or len(dns_servers) == 0
+
+    if condition == "missing_update_counts":
+        update = get_update_data(host)
+        if not isinstance(update, dict):
+            return True
+        return update.get("updates_count") is None
 
     return False
 
@@ -183,9 +221,13 @@ def get_network_interfaces(host: Dict[str, Any]) -> List[Any]:
         host,
         ["network_interfaces", "interfaces", "ip_addresses", "network_adapters"]
     )
-
     if isinstance(interfaces, list):
         return interfaces
+
+    network = host.get("network", {})
+    nested_interfaces = network.get("interfaces", [])
+    if isinstance(nested_interfaces, list):
+        return nested_interfaces
 
     return []
 

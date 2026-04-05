@@ -1,5 +1,8 @@
 from typing import Any, Dict, List
 
+from collector.analysis.control_score_calculator import calculate_control_scores
+from collector.analysis.risk_score_calculator import calculate_host_risk_scores
+
 
 def build_assessment_summary(
     consolidated_dataset: Dict[str, Any],
@@ -34,6 +37,9 @@ def build_assessment_summary(
         for control in controls:
             cis_control_counts[control] = cis_control_counts.get(control, 0) + 1
 
+    control_scores = calculate_control_scores(findings)
+    host_risk_scores = calculate_host_risk_scores(findings)
+
     return {
         "total_hosts": len(hosts),
         "total_findings": len(findings),
@@ -41,8 +47,9 @@ def build_assessment_summary(
         "severity_counts": severity_counts,
         "category_counts": dict(sorted(category_counts.items())),
         "cis_control_counts": dict(sorted(cis_control_counts.items())),
+        "control_scores": control_scores,
+        "host_risk_scores": host_risk_scores,
     }
-
 
 def build_scoreboard_markdown(
     consolidated_dataset: Dict[str, Any],
@@ -82,6 +89,34 @@ def build_scoreboard_markdown(
     if cis_control_counts:
         for control, count in cis_control_counts.items():
             lines.append(f"- {control}: {count}")
+    else:
+        lines.append("- None")
+    lines.append("")
+
+    control_scores = summary.get("control_scores", {})
+    lines.append("## CIS Control Scores")
+    if control_scores:
+        for control, data in control_scores.items():
+            lines.append(
+                f"- {control}: {data.get('score', 0)}% "
+                f"(status: {data.get('status', 'unknown')}, "
+                f"passed: {data.get('passed_rules', 0)}, "
+                f"failed: {data.get('failed_rules', 0)}, "
+                f"total: {data.get('total_rules', 0)})"
+            )
+    else:
+        lines.append("- None")
+    lines.append("")
+    
+    host_risk_scores = summary.get("host_risk_scores", {})
+    lines.append("## Host Risk Scores")
+    if host_risk_scores:
+        for hostname, data in host_risk_scores.items():
+            lines.append(
+                f"- {hostname}: {data.get('risk_score', 0)} "
+                f"(level: {data.get('risk_level', 'low')}, "
+                f"findings: {data.get('finding_count', 0)})"
+            )
     else:
         lines.append("- None")
     lines.append("")

@@ -79,6 +79,58 @@ def map_evidence(rule: Any, host_record: Dict[str, Any]) -> List[Dict[str, Any]]
             "reason": "Configured interface threshold for this rule.",
         })
 
+    elif condition == "no_network_interfaces":
+        interfaces = get_network_interfaces(host_record)
+        evidence.append({
+            "field": "network_interfaces",
+            "value": interfaces,
+            "reason": "No network interfaces detected.",
+        })
+
+    elif condition == "no_ipv4_address":
+        evidence.append({
+            "field": "primary_ip",
+            "value": get_primary_ip(host_record),
+            "reason": "No valid IPv4 address detected.",
+        })
+
+    elif condition == "no_dns_servers":
+        dns = host_record.get("network", {}).get("dns_servers", [])
+        evidence.append({
+            "field": "dns_servers",
+            "value": dns,
+            "reason": "DNS server list is empty or missing.",
+        })
+
+    elif condition == "incomplete_update_status":
+        evidence.append({
+            "field": "update_status",
+            "value": get_update_data(host_record),
+            "reason": "Update status fields are incomplete.",
+        })
+
+    elif condition == "no_default_gateway":
+        gateway = host_record.get("network", {}).get("default_gateway")
+        evidence.append({
+            "field": "default_gateway",
+            "value": gateway,
+            "reason": "Default gateway is missing or empty.",
+        })
+
+    elif condition == "no_dns_servers":
+        dns_servers = host_record.get("network", {}).get("dns_servers", [])
+        evidence.append({
+            "field": "dns_servers",
+            "value": dns_servers,
+            "reason": "DNS server list is missing or empty.",
+        })
+
+    elif condition == "missing_update_counts":
+        evidence.append({
+            "field": "update_status",
+            "value": get_update_data(host_record),
+            "reason": "Update status does not include update count fields.",
+        })   
     return evidence
 
 
@@ -175,9 +227,13 @@ def get_network_interfaces(host: Dict[str, Any]) -> List[Any]:
         host,
         ["network_interfaces", "interfaces", "ip_addresses", "network_adapters"]
     )
-
     if isinstance(interfaces, list):
         return interfaces
+
+    network = host.get("network", {})
+    nested_interfaces = network.get("interfaces", [])
+    if isinstance(nested_interfaces, list):
+        return nested_interfaces
 
     return []
 
