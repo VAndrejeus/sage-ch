@@ -341,19 +341,25 @@ def rule_matches_host(rule: Any, host: Dict[str, Any]) -> bool:
         except Exception:
             return True
 
-    #LINUX CONDITIONS
+        # LINUX CONDITIONS
     if condition == "linux_firewall_disabled":
         fw = host.get("security_config", {}).get("firewall", {})
         return fw.get("enabled") is not True
 
     if condition == "linux_ssh_root_login_enabled":
-        value = host.get("security_config", {}).get("ssh", {}).get("permit_root_login")
+        ssh = host.get("security_config", {}).get("ssh", {})
+        if ssh.get("readable") is False:
+            return False
+        value = ssh.get("permit_root_login")
         if value is None:
             return False
         return str(value).strip().lower() in {"yes", "prohibit-password", "without-password"}
 
     if condition == "linux_ssh_password_auth_enabled":
-        value = host.get("security_config", {}).get("ssh", {}).get("password_authentication")
+        ssh = host.get("security_config", {}).get("ssh", {})
+        if ssh.get("readable") is False:
+            return False
+        value = ssh.get("password_authentication")
         if value is None:
             return False
         return str(value).strip().lower() == "yes"
@@ -371,6 +377,24 @@ def rule_matches_host(rule: Any, host: Dict[str, Any]) -> bool:
     if condition == "linux_weak_password_length":
         length = host.get("security_config", {}).get("password_policy", {}).get("minimum_password_length")
         return isinstance(length, int) and length < 12
+
+    if condition == "linux_ssh_config_unreadable":
+        ssh = host.get("security_config", {}).get("ssh", {})
+        present = ssh.get("present")
+        readable = ssh.get("readable")
+        return present is True and readable is False
+
+    if condition == "linux_selinux_not_enforcing":
+        selinux = host.get("security_config", {}).get("selinux", {})
+        status = selinux.get("status")
+        if status is None:
+            return False
+        return str(status).strip().lower() != "enforcing"
+
+    if condition == "linux_weak_password_max_age":
+        max_age = host.get("security_config", {}).get("password_policy", {}).get("maximum_password_age_days")
+        return isinstance(max_age, int) and max_age > 365
+
     return False
 
 

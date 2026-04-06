@@ -1,17 +1,19 @@
 from typing import Any, Dict, List
+
 from agents.linux.collectors.host_info import _run_cmd
 
+
 def _parse_package_output(stdout: str) -> List[Dict[str, str]]:
-    # Parses tab-separated package output into a normalized package list.
     packages: List[Dict[str, str]] = []
 
     if not stdout:
         return packages
+
     for line in stdout.splitlines():
         line = line.strip()
         if not line:
             continue
-            
+
         parts = line.split("\t")
         if len(parts) != 3:
             continue
@@ -27,8 +29,8 @@ def _parse_package_output(stdout: str) -> List[Dict[str, str]]:
 
     return packages
 
+
 def collect(platform_info: Dict[str, Any]) -> Dict[str, Any]:
-    #Collects installed software
     family = platform_info.get("family", "unknown")
 
     if family == "rhel":
@@ -45,9 +47,9 @@ def collect(platform_info: Dict[str, Any]) -> Dict[str, Any]:
                 "cmd": result["cmd"],
                 "ok": result["ok"],
                 "returncode": result["returncode"],
-                                     
             },
         }
+
     if family == "debian":
         cmd = ["dpkg-query", "-W", "-f=${Package}\t${Version}\t${Architecture}\n"]
         result = _run_cmd(cmd)

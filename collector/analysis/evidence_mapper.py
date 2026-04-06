@@ -508,6 +508,26 @@ def map_evidence(rule: Any, host_record: Dict[str, Any]) -> List[Dict[str, Any]]
             "value": host_record.get("security_config", {}).get("password_policy", {}).get("minimum_password_length"),
             "reason": "Linux password minimum length is below recommended minimum.",
         })
+    elif condition == "linux_ssh_config_unreadable":
+        evidence.append({
+            "field": "security_config.ssh",
+            "value": host_record.get("security_config", {}).get("ssh", {}),
+            "reason": "SSH configuration exists but could not be read by the non-privileged agent.",
+        })
+
+    elif condition == "linux_selinux_not_enforcing":
+        evidence.append({
+            "field": "security_config.selinux",
+            "value": host_record.get("security_config", {}).get("selinux", {}),
+            "reason": "SELinux is not enforcing.",
+        })
+
+    elif condition == "linux_weak_password_max_age":
+        evidence.append({
+            "field": "security_config.password_policy.maximum_password_age_days",
+            "value": host_record.get("security_config", {}).get("password_policy", {}).get("maximum_password_age_days"),
+            "reason": "Linux maximum password age exceeds recommended maximum.",
+        })
     return evidence
 
 

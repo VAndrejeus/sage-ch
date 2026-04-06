@@ -779,6 +779,44 @@ AssessmentRule(
     recommendation="Increase PAM password minlen setting.",
     cis_controls=["CIS Control 4"],
 ),
+    AssessmentRule(
+        rule_id="RULE-LNX-C4-007",
+        title="SSH configuration unreadable",
+        target_platforms=["linux"],
+        condition="linux_ssh_config_unreadable",
+        severity="low",
+        category="secure_configuration",
+        description="SSH configuration could not be verified because the agent could not read sshd_config.",
+        expected="SSH configuration should be visible to the read-only agent or explicitly marked as restricted.",
+        recommendation="Review file permissions or document that SSH configuration requires privileged verification.",
+        cis_controls=["CIS Control 4"],
+    ),
+
+    AssessmentRule(
+        rule_id="RULE-LNX-C4-008",
+        title="SELinux not enforcing",
+        target_platforms=["linux"],
+        condition="linux_selinux_not_enforcing",
+        severity="high",
+        category="secure_configuration",
+        description="SELinux is not in Enforcing mode.",
+        expected="SELinux should be set to Enforcing.",
+        recommendation="Set SELinux to Enforcing and review policy compliance.",
+        cis_controls=["CIS Control 4"],
+    ),
+
+    AssessmentRule(
+        rule_id="RULE-LNX-C4-009",
+        title="Weak Linux password maximum age",
+        target_platforms=["linux"],
+        condition="linux_weak_password_max_age",
+        severity="medium",
+        category="secure_configuration",
+        description="Maximum password age exceeds recommended limits.",
+        expected="Maximum password age should be 365 days or fewer.",
+        recommendation="Reduce PASS_MAX_DAYS in login.defs or equivalent policy.",
+        cis_controls=["CIS Control 4"],
+    ),
 ]
 
 

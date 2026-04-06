@@ -7,10 +7,12 @@ from agents.linux.collectors.host_info import collect as collect_host_info
 from agents.linux.collectors.software_inventory import collect as collect_software_inventory
 from agents.linux.collectors.update_checker import collect as collect_update_status
 from agents.linux.collectors.security_config import collect as collect_security_config
+from agents.linux.collectors.account_info import collect as collect_account_info
+from agents.linux.collectors.audit_policy import collect as collect_audit_policy
+from agents.linux.collectors.backup_info import collect as collect_backup_info
 
-def generate_output_path():
-    #Generates the endpoint report filename with timestamp metadata endpoint_report_YYYYMMDD_HHMM.json
 
+def generate_output_path() -> str:
     timestamp = datetime.now(timezone.utc).strftime("%Y%m%d_%H%M")
     return f"agents/linux/output/endpoint_report_{timestamp}.json"
 
@@ -18,7 +20,11 @@ def generate_output_path():
 LOG_PATH = "agents/linux/output/agent_audit.log"
 
 
-def main():
+def utc_now() -> str:
+    return datetime.now(timezone.utc).isoformat()
+
+
+def main() -> None:
     logger = AuditLogger(LOG_PATH)
     logger.info("SAGE-CH Linux agent started.")
 
@@ -34,20 +40,35 @@ def main():
     logger.info("Collecting Linux software inventory.")
     software_inventory = collect_software_inventory(platform_info)
 
-    logger.info("collecting Linux update status.")
+    logger.info("Collecting Linux update status.")
     update_status = collect_update_status(platform_info)
 
-    logger.info("Collecting security configuration.")
+    logger.info("Collecting Linux security configuration.")
     security_config = collect_security_config()
+
+    logger.info("Collecting Linux account information.")
+    account_info = collect_account_info()
+
+    logger.info("Collecting Linux audit policy information.")
+    audit_policy = collect_audit_policy()
+
+    logger.info("Collecting Linux backup information.")
+    backup_info = collect_backup_info()
 
     report = {
         "project": "SAGE-CH",
-        "timestamp_utc": datetime.now(timezone.utc).isoformat(),
-        "agent": {"os": "linux", "mode": "read-only"},
+        "timestamp_utc": utc_now(),
+        "agent": {
+            "os": "linux",
+            "mode": "read-only",
+        },
         "host_info": host_info,
         "software_inventory": software_inventory,
         "update_status": update_status,
         "security_config": security_config,
+        "account_info": account_info,
+        "audit_policy": audit_policy,
+        "backup_info": backup_info,
     }
 
     logger.info("Writing JSON report.")

@@ -1,10 +1,23 @@
-from typing import Any, Dict, List
+from typing import Any, Dict
+from datetime import datetime
 
 from agents.linux.collectors.host_info import _run_cmd
 
-def collect(platform_info: Dict[str, Any]) -> Dict[str, Any]:
-    # Collects update status based on Linux distro
 
+def _get_last_update_date() -> str:
+    #Approximate last update time using yum/dnf history.
+    
+    result = _run_cmd(["dnf", "history", "info", "last"])
+
+    if result["ok"] and result["stdout"]:
+        for line in result["stdout"].splitlines():
+            if "Begin time" in line:
+                return line.split(":", 1)[1].strip()
+
+    return None
+
+
+def collect(platform_info: Dict[str, Any]) -> Dict[str, Any]:
     family = platform_info.get("family", "unknown")
 
     if family == "rhel":
@@ -29,13 +42,24 @@ def collect(platform_info: Dict[str, Any]) -> Dict[str, Any]:
                     updates_count += 1
 
         elif result["returncode"] == 0:
+            updates_available = False
+            updates_count = 0
+
+        else:
             updates_available = None
             updates_count = None
 
         return {
             "method": "dnf check-update",
+
+            #normalized fields (parity with Windows)
             "updates_available": updates_available,
             "updates_count": updates_count,
+            "last_update_date": _get_last_update_date(),
+
+            # optional but useful
+            "last_checked": datetime.utcnow().isoformat(),
+
             "note": result["stderr"] if result["returncode"] not in [0, 100] else "",
             "evidence": {
                 "cmd": result["cmd"],
@@ -67,8 +91,14 @@ def collect(platform_info: Dict[str, Any]) -> Dict[str, Any]:
 
         return {
             "method": "apt list --upgradable",
+
+            #normalized fields
             "updates_available": updates_available,
             "updates_count": updates_count,
+            "last_update_date": None,  # harder on Debian without logs
+
+            "last_checked": datetime.utcnow().isoformat(),
+
             "note": result["stderr"] if result["returncode"] != 0 else "",
             "evidence": {
                 "cmd": result["cmd"],
@@ -81,5 +111,6 @@ def collect(platform_info: Dict[str, Any]) -> Dict[str, Any]:
         "method": "unsupported",
         "updates_available": None,
         "updates_count": None,
+        "last_update_date": None,
         "note": "Unsupported or unknown Linux family for update status collection.",
     }
