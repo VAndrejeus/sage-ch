@@ -1,3 +1,4 @@
+from datetime import datetime
 from typing import Any, Dict, List
 
 from collector.analysis.evidence_mapper import map_evidence
@@ -50,12 +51,7 @@ def rule_matches_host(rule: Any, host: Dict[str, Any]) -> bool:
         hostname = get_hostname(host)
         platform = get_platform(host)
         primary_ip = get_primary_ip(host)
-
-        return (
-            is_blank(hostname)
-            or is_blank(platform)
-            or is_blank(primary_ip)
-        )
+        return is_blank(hostname) or is_blank(platform) or is_blank(primary_ip)
 
     if condition == "no_network_interfaces":
         interfaces = get_network_interfaces(host)
@@ -67,18 +63,14 @@ def rule_matches_host(rule: Any, host: Dict[str, Any]) -> bool:
 
     if condition == "no_dns_servers":
         network = host.get("network", {})
-        dns = network.get("dns_servers", [])
-        return not isinstance(dns, list) or len(dns) == 0
+        dns_servers = network.get("dns_servers", [])
+        return not isinstance(dns_servers, list) or len(dns_servers) == 0
 
     if condition == "incomplete_update_status":
         update = get_update_data(host)
         if not isinstance(update, dict):
             return True
-
-        return (
-            update.get("updates_available") is None
-            and update.get("updates_count") is None
-        )
+        return update.get("updates_available") is None and update.get("updates_count") is None
 
     if condition == "uckg_alignment_missing":
         uckg_entity_id = get_first_present(
@@ -97,16 +89,36 @@ def rule_matches_host(rule: Any, host: Dict[str, Any]) -> bool:
         gateway = network.get("default_gateway")
         return gateway is None or str(gateway).strip() == ""
 
-    if condition == "no_dns_servers":
-        network = host.get("network", {})
-        dns_servers = network.get("dns_servers", [])
-        return not isinstance(dns_servers, list) or len(dns_servers) == 0
-
     if condition == "missing_update_counts":
         update = get_update_data(host)
         if not isinstance(update, dict):
             return True
         return update.get("updates_count") is None
+
+    if condition == "smb_exposed_in_discovery":
+        services = host.get("discovery_services", [])
+        if not isinstance(services, list):
+            return False
+
+        smb_ports = {139, 445}
+        for service in services:
+            if not isinstance(service, dict):
+                continue
+            port = service.get("port")
+            if isinstance(port, int) and port in smb_ports:
+                return True
+            if str(port).isdigit() and int(str(port)) in smb_ports:
+                return True
+        return False
+
+    if condition == "sensitive_apps_present":
+        software = host.get("software", [])
+        risky = ["chrome", "edge", "vpn", "remote", "steam"]
+        return any(
+            any(r in (item.get("name", "").lower()) for r in risky)
+            for item in software
+            if isinstance(item, dict)
+        )
 
     if condition == "uac_disabled":
         sc = host.get("security_config", {})
@@ -158,10 +170,10 @@ def rule_matches_host(rule: Any, host: Dict[str, Any]) -> bool:
     if condition == "weak_lockout_threshold":
         threshold = host.get("security_config", {}).get("account_policy", {}).get("lockout_threshold")
         return isinstance(threshold, int) and (threshold == 0 or threshold > 10)
-    
+
     if condition == "missing_password_policy":
         policy = host.get("security_config", {}).get("account_policy", {})
-        return all(v is None for v in policy.values())
+        return isinstance(policy, dict) and len(policy) > 0 and all(v is None for v in policy.values())
 
     if condition == "missing_password_complexity":
         pc = host.get("security_config", {}).get("password_complexity", {})
@@ -169,55 +181,85 @@ def rule_matches_host(rule: Any, host: Dict[str, Any]) -> bool:
 
     if condition == "missing_autorun_config":
         ar = host.get("security_config", {}).get("autorun", {})
-        return ar.get("disabled") is None
-    
+        return ar.get("NoDriveTypeAutoRun") is None and ar.get("NoAutorun") is None
+
+    if condition == "weak_password_policy_combined":
+        policy = host.get("security_config", {}).get("account_policy", {})
+        complexity = host.get("security_config", {}).get("password_complexity", {})
+        return (
+            policy.get("minimum_password_length", 0) < 8
+            and policy.get("password_history_length", 0) < 5
+            and complexity.get("enabled") is False
+        )
+
     if condition == "guest_account_present":
         accounts = host.get("account_info", {}).get("accounts", [])
-        return any(a.get("username").lower() == "guest" for a in accounts)
+        return any(
+            isinstance(a, dict) and str(a.get("username", "")).lower() == "guest"
+            for a in accounts
+        )
 
     if condition == "multiple_admin_accounts":
         accounts = host.get("account_info", {}).get("accounts", [])
-        admins = [a for a in accounts if a.get("is_admin")]
+        admins = [a for a in accounts if isinstance(a, dict) and a.get("is_admin")]
         return len(admins) > 2
 
     if condition == "password_never_expires":
         accounts = host.get("account_info", {}).get("accounts", [])
-        return any(a.get("password_never_expires") for a in accounts)
+        return any(
+            isinstance(a, dict) and a.get("password_never_expires")
+            for a in accounts
+        )
 
     if condition == "disabled_accounts_present":
         accounts = host.get("account_info", {}).get("accounts", [])
-        return any(not a.get("enabled") for a in accounts)
-    
+        return any(
+            isinstance(a, dict) and not a.get("enabled")
+            for a in accounts
+        )
+
     if condition == "admin_accounts_exist":
         accounts = host.get("account_info", {}).get("accounts", [])
-        return any(a.get("is_admin") for a in accounts)
+        return any(
+            isinstance(a, dict) and a.get("is_admin")
+            for a in accounts
+        )
 
     if condition == "too_many_admins":
         accounts = host.get("account_info", {}).get("accounts", [])
-        admins = [a for a in accounts if a.get("is_admin")]
+        admins = [a for a in accounts if isinstance(a, dict) and a.get("is_admin")]
         return len(admins) > 2
 
-    if condition == "admin_account_without_password_expiry":
+    if condition == "admin_high_risk_profile":
         accounts = host.get("account_info", {}).get("accounts", [])
-        return any(a.get("is_admin") and a.get("password_never_expires") for a in accounts)
-    
+        return any(
+            isinstance(a, dict)
+            and a.get("is_admin")
+            and a.get("password_never_expires")
+            and a.get("enabled")
+            for a in accounts
+        )
+
     if condition == "audit_logging_not_configured":
         settings = host.get("audit_policy", {}).get("settings", [])
         return len(settings) == 0
 
     if condition == "no_logon_auditing":
         settings = host.get("audit_policy", {}).get("settings", [])
-        return not any("Logon" in s.get("category", "") for s in settings)
-    
-    if condition == "risky_software_installed":
-        software = host.get("software_inventory", {}).get("items", [])
-        risky = ["chrome", "firefox", "edge"]
+        return not any(
+            isinstance(s, dict) and "Logon" in s.get("category", "")
+            for s in settings
+        )
 
+    if condition == "risky_software_installed":
+        software = host.get("software", [])
+        risky = ["chrome", "firefox", "edge"]
         return any(
             any(r in (item.get("name", "").lower()) for r in risky)
             for item in software
+            if isinstance(item, dict)
         )
-    
+
     if condition == "defender_disabled":
         defender = host.get("security_config", {}).get("defender", {})
         return defender.get("antivirus_enabled") is False
@@ -229,43 +271,53 @@ def rule_matches_host(rule: Any, host: Dict[str, Any]) -> bool:
     if condition == "antispyware_disabled":
         defender = host.get("security_config", {}).get("defender", {})
         return defender.get("antispyware_enabled") is False
-    
+
     if condition == "no_backups_detected":
         return not host.get("backup_info", {}).get("shadow_copies_present", False)
-    
+
     if condition == "no_multiple_interfaces":
-        interfaces = host.get("host_info", {}).get("network", {}).get("interfaces", [])
+        interfaces = host.get("network", {}).get("interfaces", [])
         return len(interfaces) < 1
-    
+
     if condition == "no_security_tools_detected":
-        software = host.get("software_inventory", {}).get("items", [])
+        software = host.get("software", [])
         return not any(
-            "defender" in (s.get("name", "").lower()) or
-            "security" in (s.get("name", "").lower())
+            "defender" in (s.get("name", "").lower()) or "security" in (s.get("name", "").lower())
             for s in software
+            if isinstance(s, dict)
         )
-    
+
     if condition == "third_party_software_present":
-        software = host.get("software_inventory", {}).get("items", [])
+        software = host.get("software", [])
         return any(
-            "vpn" in (s.get("name", "").lower()) or
-            "virtualbox" in (s.get("name", "").lower())
+            "vpn" in (s.get("name", "").lower()) or "virtualbox" in (s.get("name", "").lower())
             for s in software
+            if isinstance(s, dict)
         )
-    
+
     if condition == "many_installed_applications":
-        software = host.get("software_inventory", {}).get("items", [])
+        software = host.get("software", [])
         return len(software) > 50
 
     if condition == "developer_tools_installed":
-        software = host.get("software_inventory", {}).get("items", [])
+        software = host.get("software", [])
         risky = ["python", "git", "wsl"]
-
         return any(
             any(r in (s.get("name", "").lower()) for r in risky)
             for s in software
+            if isinstance(s, dict)
         )
-    
+
+    if condition == "high_attack_surface":
+        software = host.get("software", [])
+        keywords = ["python", "git", "wsl", "virtualbox", "vpn"]
+        count = sum(
+            any(k in (s.get("name", "").lower()) for k in keywords)
+            for s in software
+            if isinstance(s, dict)
+        )
+        return count >= 3
+
     if condition == "insufficient_audit_events":
         settings = host.get("audit_policy", {}).get("settings", [])
         return len(settings) < 5
@@ -274,10 +326,51 @@ def rule_matches_host(rule: Any, host: Dict[str, Any]) -> bool:
         backup = host.get("backup_info", {}).get("shadow_copies_present", False)
         logs = host.get("audit_policy", {}).get("settings", [])
         return not backup or len(logs) == 0
-    
+
     if condition == "high_vulnerability_density":
         findings = host.get("findings", [])
         return len(findings) > 10
+
+    if condition == "recent_patch_missing":
+        latest = host.get("update_status", {}).get("latest_hotfix_date")
+        if not latest:
+            return True
+        try:
+            dt = datetime.strptime(latest, "%A, %B %d, %Y %I:%M:%S %p")
+            return (datetime.now() - dt).days > 30
+        except Exception:
+            return True
+
+    #LINUX CONDITIONS
+    if condition == "linux_firewall_disabled":
+        fw = host.get("security_config", {}).get("firewall", {})
+        return fw.get("enabled") is not True
+
+    if condition == "linux_ssh_root_login_enabled":
+        value = host.get("security_config", {}).get("ssh", {}).get("permit_root_login")
+        if value is None:
+            return False
+        return str(value).strip().lower() in {"yes", "prohibit-password", "without-password"}
+
+    if condition == "linux_ssh_password_auth_enabled":
+        value = host.get("security_config", {}).get("ssh", {}).get("password_authentication")
+        if value is None:
+            return False
+        return str(value).strip().lower() == "yes"
+
+    if condition == "linux_auto_updates_disabled":
+        updates = host.get("security_config", {}).get("automatic_updates", {})
+        return updates.get("enabled") is not True
+
+    if condition == "linux_fail2ban_missing":
+        fail2ban = host.get("security_config", {}).get("fail2ban", {})
+        installed = fail2ban.get("installed")
+        running = fail2ban.get("running")
+        return installed is not True or running is not True
+
+    if condition == "linux_weak_password_length":
+        length = host.get("security_config", {}).get("password_policy", {}).get("minimum_password_length")
+        return isinstance(length, int) and length < 12
     return False
 
 
@@ -292,7 +385,7 @@ def get_hostname(host: Dict[str, Any]) -> str:
 def get_platform(host: Dict[str, Any]) -> str:
     value = get_first_present(
         host,
-        ["platform", "os_family", "os_type"]
+        ["platform", "os_family", "os_type", "source_os"]
     )
 
     if value is None:
@@ -316,34 +409,39 @@ def get_platform(host: Dict[str, Any]) -> str:
     return platform
 
 
-def get_primary_ip(host: Dict[str, Any]) -> str:
-    direct_ip = get_first_present(
-        host,
-        ["primary_ip", "ip_address", "ipv4", "primary_ipv4"]
-    )
-    if direct_ip is not None and str(direct_ip).strip():
-        return str(direct_ip).strip()
-
+def get_primary_ip(host):
     network = host.get("network", {})
     interfaces = network.get("interfaces", [])
 
-    if isinstance(interfaces, list):
-        for interface in interfaces:
-            if not isinstance(interface, dict):
+    best_ipv4 = None
+    best_ipv6 = None
+
+    for iface in interfaces:
+        if not isinstance(iface, dict):
+            continue
+
+        # IPv4 (skip loopback)
+        for ip in iface.get("ipv4", []):
+            if ip and not ip.startswith("127."):
+                best_ipv4 = ip
+
+        # IPv6 (skip loopback + link-local)
+        for ip in iface.get("ipv6", []):
+            if not ip:
                 continue
+            ip = ip.lower()
+            if ip == "::1":
+                continue
+            if ip.startswith("fe80:"):
+                continue
+            if not best_ipv6:
+                best_ipv6 = ip
 
-            ipv4_values = interface.get("ipv4", [])
-            if isinstance(ipv4_values, list) and len(ipv4_values) > 0:
-                first_ip = ipv4_values[0]
-                if first_ip is not None and str(first_ip).strip():
-                    return str(first_ip).strip()
+    if best_ipv4:
+        return best_ipv4
 
-            candidate = (
-                interface.get("ip_address")
-                or interface.get("address")
-            )
-            if candidate is not None and str(candidate).strip():
-                return str(candidate).strip()
+    if best_ipv6:
+        return best_ipv6
 
     return ""
 

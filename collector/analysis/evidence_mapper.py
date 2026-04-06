@@ -95,11 +95,11 @@ def map_evidence(rule: Any, host_record: Dict[str, Any]) -> List[Dict[str, Any]]
         })
 
     elif condition == "no_dns_servers":
-        dns = host_record.get("network", {}).get("dns_servers", [])
+        dns_servers = host_record.get("network", {}).get("dns_servers", [])
         evidence.append({
             "field": "dns_servers",
-            "value": dns,
-            "reason": "DNS server list is empty or missing.",
+            "value": dns_servers,
+            "reason": "DNS server list is missing or empty.",
         })
 
     elif condition == "incomplete_update_status":
@@ -117,21 +117,29 @@ def map_evidence(rule: Any, host_record: Dict[str, Any]) -> List[Dict[str, Any]]
             "reason": "Default gateway is missing or empty.",
         })
 
-    elif condition == "no_dns_servers":
-        dns_servers = host_record.get("network", {}).get("dns_servers", [])
-        evidence.append({
-            "field": "dns_servers",
-            "value": dns_servers,
-            "reason": "DNS server list is missing or empty.",
-        })
-
     elif condition == "missing_update_counts":
         evidence.append({
             "field": "update_status",
             "value": get_update_data(host_record),
             "reason": "Update status does not include update count fields.",
-        })   
-    
+        })
+
+    elif condition == "smb_exposed_in_discovery":
+        evidence.append({
+            "field": "discovery_services",
+            "value": host_record.get("discovery_services", []),
+            "reason": "Discovery data includes SMB-related ports.",
+        })
+
+    elif condition == "sensitive_apps_present":
+        software = get_software_inventory(host_record)
+        matched = _match_software_names(software, ["chrome", "edge", "vpn", "remote", "steam"])
+        evidence.append({
+            "field": "software",
+            "value": matched,
+            "reason": "Applications associated with potentially sensitive data access were detected.",
+        })
+
     elif condition == "uac_disabled":
         evidence.append({
             "field": "security_config.uac.enabled",
@@ -237,7 +245,291 @@ def map_evidence(rule: Any, host_record: Dict[str, Any]) -> List[Dict[str, Any]]
             "value": host_record.get("security_config", {}).get("autorun"),
             "reason": "Autorun configuration could not be determined.",
         })
+
+    elif condition == "weak_password_policy_combined":
+        evidence.append({
+            "field": "security_config.account_policy",
+            "value": host_record.get("security_config", {}).get("account_policy"),
+            "reason": "Password policy values are weak.",
+        })
+        evidence.append({
+            "field": "security_config.password_complexity",
+            "value": host_record.get("security_config", {}).get("password_complexity"),
+            "reason": "Password complexity is disabled while other password settings are weak.",
+        })
+
+    elif condition == "guest_account_present":
+        evidence.append({
+            "field": "account_info.accounts",
+            "value": _match_accounts(host_record, lambda a: str(a.get("username", "")).lower() == "guest"),
+            "reason": "Guest account is present in collected local accounts.",
+        })
+
+    elif condition == "multiple_admin_accounts":
+        admins = _match_accounts(host_record, lambda a: a.get("is_admin"))
+        evidence.append({
+            "field": "account_info.accounts",
+            "value": admins,
+            "reason": "Multiple local administrator accounts were detected.",
+        })
+        evidence.append({
+            "field": "admin_count",
+            "value": len(admins),
+            "reason": "Count of administrator accounts.",
+        })
+
+    elif condition == "password_never_expires":
+        matches = _match_accounts(host_record, lambda a: a.get("password_never_expires"))
+        evidence.append({
+            "field": "account_info.accounts",
+            "value": matches,
+            "reason": "Accounts with non-expiring passwords were detected.",
+        })
+
+    elif condition == "disabled_accounts_present":
+        matches = _match_accounts(host_record, lambda a: not a.get("enabled"))
+        evidence.append({
+            "field": "account_info.accounts",
+            "value": matches,
+            "reason": "Disabled accounts were detected.",
+        })
+
+    elif condition == "admin_accounts_exist":
+        admins = _match_accounts(host_record, lambda a: a.get("is_admin"))
+        evidence.append({
+            "field": "account_info.accounts",
+            "value": admins,
+            "reason": "Administrative accounts were detected.",
+        })
+
+    elif condition == "too_many_admins":
+        admins = _match_accounts(host_record, lambda a: a.get("is_admin"))
+        evidence.append({
+            "field": "account_info.accounts",
+            "value": admins,
+            "reason": "Too many administrative accounts were detected.",
+        })
+        evidence.append({
+            "field": "admin_count",
+            "value": len(admins),
+            "reason": "Count of administrator accounts.",
+        })
+
+    elif condition == "admin_high_risk_profile":
+        matches = _match_accounts(
+            host_record,
+            lambda a: a.get("is_admin") and a.get("password_never_expires") and a.get("enabled")
+        )
+        evidence.append({
+            "field": "account_info.accounts",
+            "value": matches,
+            "reason": "Enabled administrator accounts with non-expiring passwords were detected.",
+        })
+
+    elif condition == "audit_logging_not_configured":
+        evidence.append({
+            "field": "audit_policy.settings",
+            "value": host_record.get("audit_policy", {}).get("settings", []),
+            "reason": "Audit policy settings are missing or empty.",
+        })
+
+    elif condition == "no_logon_auditing":
+        evidence.append({
+            "field": "audit_policy.settings",
+            "value": host_record.get("audit_policy", {}).get("settings", []),
+            "reason": "No logon auditing setting was found.",
+        })
+
+    elif condition == "risky_software_installed":
+        matches = _match_software_names(get_software_inventory(host_record), ["chrome", "firefox", "edge"])
+        evidence.append({
+            "field": "software",
+            "value": matches,
+            "reason": "Browser software associated with exposure risk was detected.",
+        })
+
+    elif condition == "defender_disabled":
+        evidence.append({
+            "field": "security_config.defender.antivirus_enabled",
+            "value": host_record.get("security_config", {}).get("defender", {}).get("antivirus_enabled"),
+            "reason": "Antivirus is disabled.",
+        })
+
+    elif condition == "realtime_protection_disabled":
+        evidence.append({
+            "field": "security_config.defender.realtime_protection_enabled",
+            "value": host_record.get("security_config", {}).get("defender", {}).get("realtime_protection_enabled"),
+            "reason": "Realtime protection is disabled.",
+        })
+
+    elif condition == "antispyware_disabled":
+        evidence.append({
+            "field": "security_config.defender.antispyware_enabled",
+            "value": host_record.get("security_config", {}).get("defender", {}).get("antispyware_enabled"),
+            "reason": "Antispyware protection is disabled.",
+        })
+
+    elif condition == "no_backups_detected":
+        evidence.append({
+            "field": "backup_info",
+            "value": host_record.get("backup_info", {}),
+            "reason": "No backup or shadow copy evidence was detected.",
+        })
+
+    elif condition == "no_multiple_interfaces":
+        evidence.append({
+            "field": "network.interfaces",
+            "value": host_record.get("network", {}).get("interfaces", []),
+            "reason": "Insufficient network interface visibility was detected.",
+        })
+
+    elif condition == "no_security_tools_detected":
+        evidence.append({
+            "field": "software",
+            "value": get_software_inventory(host_record),
+            "reason": "No visible security tooling was detected in software inventory.",
+        })
+
+    elif condition == "third_party_software_present":
+        matches = _match_software_names(get_software_inventory(host_record), ["vpn", "virtualbox"])
+        evidence.append({
+            "field": "software",
+            "value": matches,
+            "reason": "Third-party software requiring vendor review was detected.",
+        })
+
+    elif condition == "many_installed_applications":
+        software = get_software_inventory(host_record)
+        evidence.append({
+            "field": "software_count",
+            "value": len(software) if isinstance(software, list) else 0,
+            "reason": "Large installed software footprint detected.",
+        })
+
+    elif condition == "developer_tools_installed":
+        matches = _match_software_names(get_software_inventory(host_record), ["python", "git", "wsl"])
+        evidence.append({
+            "field": "software",
+            "value": matches,
+            "reason": "Developer tooling associated with increased attack surface was detected.",
+        })
+
+    elif condition == "high_attack_surface":
+        matches = _match_software_names(get_software_inventory(host_record), ["python", "git", "wsl", "virtualbox", "vpn"])
+        evidence.append({
+            "field": "software",
+            "value": matches,
+            "reason": "Multiple high-risk tools contributing to attack surface were detected.",
+        })
+
+    elif condition == "insufficient_audit_events":
+        settings = host_record.get("audit_policy", {}).get("settings", [])
+        evidence.append({
+            "field": "audit_policy.settings",
+            "value": settings,
+            "reason": "Audit coverage is limited.",
+        })
+        evidence.append({
+            "field": "audit_setting_count",
+            "value": len(settings) if isinstance(settings, list) else 0,
+            "reason": "Count of collected audit policy settings.",
+        })
+
+    elif condition == "no_backup_and_logs":
+        evidence.append({
+            "field": "backup_info.shadow_copies_present",
+            "value": host_record.get("backup_info", {}).get("shadow_copies_present"),
+            "reason": "Backup availability used in incident response assessment.",
+        })
+        evidence.append({
+            "field": "audit_policy.settings",
+            "value": host_record.get("audit_policy", {}).get("settings", []),
+            "reason": "Audit log availability used in incident response assessment.",
+        })
+
+    elif condition == "high_vulnerability_density":
+        findings = host_record.get("findings", [])
+        evidence.append({
+            "field": "findings",
+            "value": findings,
+            "reason": "Finding count used to assess vulnerability density.",
+        })
+        evidence.append({
+            "field": "finding_count",
+            "value": len(findings) if isinstance(findings, list) else 0,
+            "reason": "Total findings associated with the host.",
+        })
+
+    elif condition == "recent_patch_missing":
+        evidence.append({
+            "field": "update_status.latest_hotfix_date",
+            "value": host_record.get("update_status", {}).get("latest_hotfix_date"),
+            "reason": "Latest installed hotfix date was used to assess patch recency.",
+        })
+    #LINUX CONDITIONS
+    elif condition == "linux_firewall_disabled":
+        evidence.append({
+            "field": "security_config.firewall",
+            "value": host_record.get("security_config", {}).get("firewall"),
+            "reason": "Linux firewall is disabled or not detected.",
+        })
+
+    elif condition == "linux_ssh_root_login_enabled":
+        evidence.append({
+            "field": "security_config.ssh.permit_root_login",
+            "value": host_record.get("security_config", {}).get("ssh", {}).get("permit_root_login"),
+            "reason": "SSH root login is enabled.",
+        })
+
+    elif condition == "linux_ssh_password_auth_enabled":
+        evidence.append({
+            "field": "security_config.ssh.password_authentication",
+            "value": host_record.get("security_config", {}).get("ssh", {}).get("password_authentication"),
+            "reason": "SSH password authentication is enabled.",
+        })
+
+    elif condition == "linux_auto_updates_disabled":
+        evidence.append({
+            "field": "security_config.automatic_updates",
+            "value": host_record.get("security_config", {}).get("automatic_updates"),
+            "reason": "Automatic updates are disabled or not configured.",
+        })
+
+    elif condition == "linux_fail2ban_missing":
+        evidence.append({
+            "field": "security_config.fail2ban",
+            "value": host_record.get("security_config", {}).get("fail2ban"),
+            "reason": "Fail2ban is not installed or not running.",
+        })
+
+    elif condition == "linux_weak_password_length":
+        evidence.append({
+            "field": "security_config.password_policy.minimum_password_length",
+            "value": host_record.get("security_config", {}).get("password_policy", {}).get("minimum_password_length"),
+            "reason": "Linux password minimum length is below recommended minimum.",
+        })
     return evidence
+
+
+def _match_accounts(host: Dict[str, Any], predicate) -> List[Dict[str, Any]]:
+    accounts = host.get("account_info", {}).get("accounts", [])
+    if not isinstance(accounts, list):
+        return []
+    return [a for a in accounts if isinstance(a, dict) and predicate(a)]
+
+
+def _match_software_names(software: Any, keywords: List[str]) -> List[Dict[str, Any]]:
+    if not isinstance(software, list):
+        return []
+
+    matches: List[Dict[str, Any]] = []
+    for item in software:
+        if not isinstance(item, dict):
+            continue
+        name = str(item.get("name", "")).lower()
+        if any(keyword in name for keyword in keywords):
+            matches.append(item)
+    return matches
 
 
 def get_hostname(host: Dict[str, Any]) -> str:
@@ -256,34 +548,39 @@ def get_platform(host: Dict[str, Any]) -> str:
     return "" if value is None else str(value).strip().lower()
 
 
-def get_primary_ip(host: Dict[str, Any]) -> str:
-    direct_ip = get_first_present(
-        host,
-        ["primary_ip", "ip_address", "ipv4", "primary_ipv4"]
-    )
-    if direct_ip is not None and str(direct_ip).strip():
-        return str(direct_ip).strip()
-
+def get_primary_ip(host):
     network = host.get("network", {})
     interfaces = network.get("interfaces", [])
 
-    if isinstance(interfaces, list):
-        for interface in interfaces:
-            if not isinstance(interface, dict):
+    best_ipv4 = None
+    best_ipv6 = None
+
+    for iface in interfaces:
+        if not isinstance(iface, dict):
+            continue
+
+        # IPv4 (skip loopback)
+        for ip in iface.get("ipv4", []):
+            if ip and not ip.startswith("127."):
+                best_ipv4 = ip
+
+        # IPv6 (skip loopback + link-local)
+        for ip in iface.get("ipv6", []):
+            if not ip:
                 continue
+            ip = ip.lower()
+            if ip == "::1":
+                continue
+            if ip.startswith("fe80:"):
+                continue
+            if not best_ipv6:
+                best_ipv6 = ip
 
-            ipv4_values = interface.get("ipv4", [])
-            if isinstance(ipv4_values, list) and len(ipv4_values) > 0:
-                first_ip = ipv4_values[0]
-                if first_ip is not None and str(first_ip).strip():
-                    return str(first_ip).strip()
+    if best_ipv4:
+        return best_ipv4
 
-            candidate = (
-                interface.get("ip_address")
-                or interface.get("address")
-            )
-            if candidate is not None and str(candidate).strip():
-                return str(candidate).strip()
+    if best_ipv6:
+        return best_ipv6
 
     return ""
 

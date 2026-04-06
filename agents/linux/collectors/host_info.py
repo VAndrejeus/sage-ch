@@ -5,14 +5,14 @@ import subprocess
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
+
 def _run_cmd(cmd: List[str]) -> Dict[str, Any]:
-    # Runs command safely and returns structured results disctionary
     try:
         completed = subprocess.run(
             cmd,
             capture_output=True,
             text=True,
-            check=False,            
+            check=False,
         )
         return {
             "ok": completed.returncode == 0,
@@ -27,10 +27,11 @@ def _run_cmd(cmd: List[str]) -> Dict[str, Any]:
             "returncode": None,
             "stdout": "",
             "stderr": str(e),
-            "cmd": " ".join(cmd),            
+            "cmd": " ".join(cmd),
         }
+
+
 def _read_os_release() -> Dict[str, str]:
-    #Reads /etc/os-release (or /usr/lib/os-release) and returns key/value pairs.
     path_candidates = [Path("/etc/os-release"), Path("/usr/lib/os-release")]
 
     for path in path_candidates:
@@ -46,11 +47,11 @@ def _read_os_release() -> Dict[str, str]:
 
     return {}
 
+
 def _parse_json_output(stdout: str) -> List[Dict[str, Any]]:
-    #Safely parse JSON test returned by linux command"
     if not stdout:
         return []
-    
+
     try:
         data = json.loads(stdout)
         if isinstance(data, list):
@@ -58,9 +59,20 @@ def _parse_json_output(stdout: str) -> List[Dict[str, Any]]:
         return []
     except json.JSONDecodeError:
         return []
-    
+
+
+def _prefix_to_netmask(prefixlen: int) -> Optional[str]:
+    if not isinstance(prefixlen, int):
+        return None
+
+    if prefixlen < 0 or prefixlen > 32:
+        return None
+
+    mask = (0xFFFFFFFF << (32 - prefixlen)) & 0xFFFFFFFF if prefixlen > 0 else 0
+    return ".".join(str((mask >> shift) & 0xFF) for shift in (24, 16, 8, 0))
+
+
 def _extract_interfaces(ip_addr_data: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
-    #converts raw 'ip -j addr' output into a simplified structure
     interfaces: List[Dict[str, Any]] = []
 
     for iface in ip_addr_data:
@@ -70,18 +82,22 @@ def _extract_interfaces(ip_addr_data: List[Dict[str, Any]]) -> List[Dict[str, An
 
         ipv4: List[str] = []
         ipv6: List[str] = []
+        subnet_mask: Optional[str] = None
 
         for addr in addr_info:
-            family = addr.get("amily")
+            family = addr.get("family")
             local = addr.get("local")
 
             if not local:
                 continue
+
             if family == "inet":
                 ipv4.append(local)
+                if subnet_mask is None:
+                    subnet_mask = _prefix_to_netmask(addr.get("prefixlen"))
             elif family == "inet6":
                 ipv6.append(local)
-            
+
         if name:
             interfaces.append(
                 {
@@ -89,25 +105,24 @@ def _extract_interfaces(ip_addr_data: List[Dict[str, Any]]) -> List[Dict[str, An
                     "mac_address": mac,
                     "ipv4": ipv4,
                     "ipv6": ipv6,
-                    "subnet_mask": None,
+                    "subnet_mask": subnet_mask,
                     "dhcp_enabled": None,
                 }
             )
+
     return interfaces
 
-def _extract_default_gateway(route_data: List[Dict[str, Any]]) -> Optional[str]:
-    #finds the default gateway from 'ip -j route' output
 
+def _extract_default_gateway(route_data: List[Dict[str, Any]]) -> Optional[str]:
     for route in route_data:
         if route.get("dst") == "default":
-            return route.get("gateway")
+            gateway = route.get("gateway")
+            if gateway:
+                return gateway
     return None
 
 
 def _extract_dns_servers() -> List[str]:
-
-    #Reads /etc/resolv.conf and extracts nameserver entries.
-
     resolv_conf = Path("/etc/resolv.conf")
     if not resolv_conf.exists():
         return []
@@ -122,14 +137,14 @@ def _extract_dns_servers() -> List[str]:
         if line.startswith("nameserver"):
             parts = line.split()
             if len(parts) >= 2:
-                dns_servers.append(parts[1])
+                value = parts[1].strip()
+                if value and value not in dns_servers:
+                    dns_servers.append(value)
 
     return dns_servers
 
+
 def collect() -> Dict[str, Any]:
-
-    #Main Linux host information collector.
-
     hostname = socket.gethostname()
     os_release = _read_os_release()
     kernel_version = platform.release()
@@ -151,22 +166,22 @@ def collect() -> Dict[str, Any]:
     distro_like = os_release.get("ID_LIKE", "").split() if os_release.get("ID_LIKE") else []
 
     return {
-    "hostname": hostname,
-    "os_name": os_name,
-    "os_version": os_version,
-    "platform": platform_string,
-    "kernel_version": kernel_version,
-    "distro_id": distro_id,
-    "distro_like": distro_like,
-    "network": {
-        "interfaces": interfaces,
-        "default_gateway": default_gateway,
-        "dns_servers": dns_servers,
-    },
-    "evidence": {
-        "ip_addr_cmd": ip_addr_result["cmd"],
-        "ip_addr_ok": ip_addr_result["ok"],
-        "ip_route_cmd": ip_route_result["cmd"],
-        "ip_route_ok": ip_route_result["ok"],
-    },
-}
+        "hostname": hostname,
+        "os_name": os_name,
+        "os_version": os_version,
+        "platform": platform_string,
+        "kernel_version": kernel_version,
+        "distro_id": distro_id,
+        "distro_like": distro_like,
+        "network": {
+            "interfaces": interfaces,
+            "default_gateway": default_gateway,
+            "dns_servers": dns_servers,
+        },
+        "evidence": {
+            "ip_addr_cmd": ip_addr_result["cmd"],
+            "ip_addr_ok": ip_addr_result["ok"],
+            "ip_route_cmd": ip_route_result["cmd"],
+            "ip_route_ok": ip_route_result["ok"],
+        },
+    }

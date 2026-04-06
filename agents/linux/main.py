@@ -6,6 +6,7 @@ from agents.linux.platform_detect import detect_platform
 from agents.linux.collectors.host_info import collect as collect_host_info
 from agents.linux.collectors.software_inventory import collect as collect_software_inventory
 from agents.linux.collectors.update_checker import collect as collect_update_status
+from agents.linux.collectors.security_config import collect as collect_security_config
 
 def generate_output_path():
     #Generates the endpoint report filename with timestamp metadata endpoint_report_YYYYMMDD_HHMM.json
@@ -36,6 +37,9 @@ def main():
     logger.info("collecting Linux update status.")
     update_status = collect_update_status(platform_info)
 
+    logger.info("Collecting security configuration.")
+    security_config = collect_security_config()
+
     report = {
         "project": "SAGE-CH",
         "timestamp_utc": datetime.now(timezone.utc).isoformat(),
@@ -43,6 +47,7 @@ def main():
         "host_info": host_info,
         "software_inventory": software_inventory,
         "update_status": update_status,
+        "security_config": security_config,
     }
 
     logger.info("Writing JSON report.")
