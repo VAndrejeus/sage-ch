@@ -1,13 +1,18 @@
+from __future__ import annotations
+
 from datetime import datetime, timezone
+from pathlib import Path
+from typing import Any, Dict, List
 
 from agents.common.utils.audit_logger import AuditLogger
 from agents.common.utils.json_writer import write_json
 
-from collector.ingestion.report_loader import load_reports
 from collector.ingestion.discovery_loader import (
     get_latest_discovery_file,
     load_discovery_file,
 )
+from collector.ingestion.report_loader import load_reports_from_paths
+from collector.ingestion.staged_ingestion import StagedIngestionService
 from collector.validation.schema_validator import validate_report
 from collector.validation.discovery_validator import validate_discovery_file
 from collector.normalization.normalizer import normalize_report
@@ -15,7 +20,6 @@ from collector.normalization.discovery_normalizer import normalize_discovered_ho
 from collector.correlation.host_correlator import correlate_hosts
 from collector.graph.graph_builder import build_graph
 from collector.alignment.uckg_aligner import align_graph_to_uckg
-
 from collector.analysis.rule_engine import evaluate_hosts
 from collector.analysis.report_generator import (
     build_assessment_summary,
@@ -23,13 +27,20 @@ from collector.analysis.report_generator import (
 )
 
 
-def generate_output_paths() -> dict:
+PROJECT_ROOT = Path(__file__).resolve().parent
+LOG_PATH = "collector/output/collector_audit.log"
+DISCOVERY_OUTPUT_DIR = "outputs/discovery"
+
+
+def generate_output_paths(batch_id: str) -> dict:
     timestamp = datetime.now(timezone.utc).strftime("%Y%m%d_%H%M")
+    safe_batch_id = batch_id.replace(":", "_").replace("/", "_").replace("\\", "_")
+
     return {
-        "consolidated": f"collector/output/consolidated_dataset_{timestamp}.json",
-        "findings": f"collector/output/findings_dataset_{timestamp}.json",
-        "summary": f"collector/output/assessment_summary_{timestamp}.json",
-        "scoreboard": f"collector/output/scoreboard_report_{timestamp}.md",
+        "consolidated": f"collector/output/consolidated_dataset_{safe_batch_id}_{timestamp}.json",
+        "findings": f"collector/output/findings_dataset_{safe_batch_id}_{timestamp}.json",
+        "summary": f"collector/output/assessment_summary_{safe_batch_id}_{timestamp}.json",
+        "scoreboard": f"collector/output/scoreboard_report_{safe_batch_id}_{timestamp}.md",
     }
 
 
@@ -38,17 +49,10 @@ def write_text_file(path: str, content: str) -> None:
         file_handle.write(content)
 
 
-INPUT_DIR = "collector/input"
-LOG_PATH = "collector/output/collector_audit.log"
-DISCOVERY_OUTPUT_DIR = "outputs/discovery"
+def process_reports(report_paths: List[str], batch_id: str, logger: AuditLogger) -> Dict[str, Any]:
+    logger.info(f"Processing staged batch {batch_id} with {len(report_paths)} report file(s).")
 
-
-def main():
-    logger = AuditLogger(LOG_PATH)
-    logger.info("SAGE-CH collector started.")
-
-    logger.info(f"Loading reports from: {INPUT_DIR}")
-    loaded_reports = load_reports(INPUT_DIR)
+    loaded_reports = load_reports_from_paths(report_paths)
     logger.info(f"Loaded {len(loaded_reports)} report file(s).")
 
     logger.info("Validating loaded reports.")
@@ -156,6 +160,7 @@ def main():
         "timestamp_utc": datetime.now(timezone.utc).isoformat(),
         "component": "collector",
         "status": "complete",
+        "batch_id": batch_id,
         "loaded_reports": loaded_reports,
         "validated_reports": validated_reports,
         "valid_report_count": len(valid_reports),
@@ -173,27 +178,87 @@ def main():
 
     logger.info("Running Phase 5 analysis.")
     findings = evaluate_hosts(normalized_hosts)
+
+    for finding in findings:
+        if isinstance(finding, dict):
+            finding["batch_id"] = batch_id
+
     logger.info(f"Generated {len(findings)} finding(s).")
 
     summary = build_assessment_summary(consolidated, findings)
+    summary["batch_id"] = batch_id
+
     scoreboard_markdown = build_scoreboard_markdown(consolidated, findings, summary)
+    scoreboard_markdown = (
+        f"# Batch\n"
+        f"- Batch ID: {batch_id}\n\n"
+        f"{scoreboard_markdown}"
+    )
 
-    outputs = generate_output_paths()
+    outputs = generate_output_paths(batch_id)
 
-    logger.info("Writing consolidated dataset.")
+    logger.info(f"Writing consolidated dataset to: {outputs['consolidated']}")
     write_json(outputs["consolidated"], consolidated)
 
-    logger.info("Writing findings dataset.")
+    logger.info(f"Writing findings dataset to: {outputs['findings']}")
     write_json(outputs["findings"], findings)
 
-    logger.info("Writing assessment summary.")
+    logger.info(f"Writing assessment summary to: {outputs['summary']}")
     write_json(outputs["summary"], summary)
 
-    logger.info("Writing scoreboard markdown report.")
+    logger.info(f"Writing scoreboard markdown report to: {outputs['scoreboard']}")
     write_text_file(outputs["scoreboard"], scoreboard_markdown)
 
     logger.info("Collector execution complete.")
 
+    success_paths = [r["path"] for r in valid_reports]
+    failed = [
+        {
+            "path": r["path"],
+            "reason": "; ".join(r["errors"]) if r["errors"] else "validation_failed"
+        }
+        for r in invalid_reports
+    ]
+
+    return {
+        "success": success_paths,
+        "failed": failed,
+    }
+
+
+def main() -> int:
+    logger = AuditLogger(LOG_PATH)
+    logger.info("SAGE-CH collector started.")
+
+    ingestion = StagedIngestionService(
+        collector_root=PROJECT_ROOT,
+        max_batch_size=25,
+    )
+
+    batch = ingestion.claim_batch()
+
+    if batch is None:
+        logger.info("No incoming files found.")
+        return 0
+
+    logger.info(f"Claimed batch {batch.batch_id} with {len(batch.files)} file(s).")
+
+    result = ingestion.process_batch(
+        batch,
+        lambda report_paths: process_reports(
+            [str(path) for path in report_paths],
+            batch.batch_id,
+            logger,
+        )
+    )
+
+    logger.info(
+        f"Batch {result.batch_id} complete. "
+        f"Success={result.success_count}, Failure={result.failure_count}"
+    )
+
+    return 1 if result.failure_count > 0 else 0
+
 
 if __name__ == "__main__":
-    main()
+    raise SystemExit(main())
