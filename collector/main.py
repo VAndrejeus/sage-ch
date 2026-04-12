@@ -7,6 +7,7 @@ from typing import Any, Dict, List
 from agents.common.utils.audit_logger import AuditLogger
 from agents.common.utils.json_writer import write_json
 
+from collector.ai.pipeline import run_ai_phase_1
 from collector.ingestion.discovery_loader import (
     get_latest_discovery_file,
     load_discovery_file,
@@ -187,11 +188,23 @@ def process_reports(report_paths: List[str], batch_id: str, logger: AuditLogger)
 
     summary = build_assessment_summary(consolidated, findings)
     summary["batch_id"] = batch_id
+    summary["timestamp_utc"] = datetime.now(timezone.utc).isoformat()
+
+    ai_result = run_ai_phase_1(
+        batch_id=batch_id,
+        consolidated=consolidated,
+        findings=findings,
+        summary=summary,
+        logger=logger,
+    )
+
+    consolidated["ai_phase_1"] = ai_result
 
     scoreboard_markdown = build_scoreboard_markdown(consolidated, findings, summary)
     scoreboard_markdown = (
         f"# Batch\n"
-        f"- Batch ID: {batch_id}\n\n"
+        f"- Batch ID: {batch_id}\n"
+        f"- AI Phase 1 OK: {ai_result['ok']}\n\n"
         f"{scoreboard_markdown}"
     )
 
