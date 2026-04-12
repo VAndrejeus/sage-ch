@@ -20,7 +20,7 @@ from collector.normalization.normalizer import normalize_report
 from collector.normalization.discovery_normalizer import normalize_discovered_hosts
 from collector.correlation.host_correlator import correlate_hosts
 from collector.graph.graph_builder import build_graph
-from collector.alignment.uckg_aligner import align_graph_to_uckg
+from collector.alignment.graph_mapper import align_graph
 from collector.analysis.rule_engine import evaluate_hosts
 from collector.analysis.report_generator import (
     build_assessment_summary,
@@ -141,18 +141,19 @@ def process_reports(report_paths: List[str], batch_id: str, logger: AuditLogger)
                 logger.info(f"Normalized discovered hosts: {len(normalized_discovered_hosts)}")
                 logger.info(f"Correlation results generated: {len(correlation_results)}")
 
+    logger.info("Building internal graph.")
     graph = build_graph(
         normalized_hosts,
         normalized_discovered_hosts,
         correlation_results
     )
 
-    logger.info("Aligning graph to basic UCKG schema.")
-    uckg_aligned_graph = align_graph_to_uckg(graph)
+    logger.info("Mapping graph to standardized graph schema.")
+    mapped_graph = align_graph(graph)
     logger.info(
-        f"UCKG alignment complete. "
-        f"Aligned nodes: {uckg_aligned_graph['summary']['node_count']}, "
-        f"aligned edges: {uckg_aligned_graph['summary']['edge_count']}"
+        f"Graph mapping complete. "
+        f"Mapped nodes: {mapped_graph['summary']['node_count']}, "
+        f"mapped edges: {mapped_graph['summary']['edge_count']}"
     )
 
     logger.info("Building consolidated dataset.")
@@ -173,8 +174,8 @@ def process_reports(report_paths: List[str], batch_id: str, logger: AuditLogger)
         "normalized_discovered_hosts": normalized_discovered_hosts,
         "correlation_results": correlation_results,
         "graph": graph,
-        "uckg_alignment_status": "basic_alignment_complete",
-        "uckg_aligned_graph": uckg_aligned_graph
+        "graph_mapping_status": "complete",
+        "mapped_graph": mapped_graph,
     }
 
     logger.info("Running Phase 5 analysis.")
