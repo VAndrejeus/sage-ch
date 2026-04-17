@@ -8,6 +8,7 @@ from agents.common.utils.audit_logger import AuditLogger
 from agents.common.utils.json_writer import write_json
 
 from collector.ai.pipeline import run_ai_phase_1
+from collector.config import KUZU_DB_PATH
 from collector.ingestion.discovery_loader import (
     get_latest_discovery_file,
     load_discovery_file,
@@ -21,12 +22,12 @@ from collector.normalization.discovery_normalizer import normalize_discovered_ho
 from collector.correlation.host_correlator import correlate_hosts
 from collector.graph.graph_builder import build_graph
 from collector.alignment.graph_mapper import align_graph
+from collector.graph.graph_persistence import persist_mapped_graph
 from collector.analysis.rule_engine import evaluate_hosts
 from collector.analysis.report_generator import (
     build_assessment_summary,
     build_scoreboard_markdown,
 )
-
 
 PROJECT_ROOT = Path(__file__).resolve().parent
 LOG_PATH = "collector/output/collector_audit.log"
@@ -90,10 +91,7 @@ def process_reports(report_paths: List[str], batch_id: str, logger: AuditLogger)
     normalized_hosts = []
 
     for report_result in valid_reports:
-        normalized = normalize_report(
-            report_result["data"],
-            report_result["path"]
-        )
+        normalized = normalize_report(report_result["data"], report_result["path"])
         normalized_hosts.append(normalized)
 
     logger.info(f"Normalized {len(normalized_hosts)} host record(s).")
@@ -141,19 +139,21 @@ def process_reports(report_paths: List[str], batch_id: str, logger: AuditLogger)
                 logger.info(f"Normalized discovered hosts: {len(normalized_discovered_hosts)}")
                 logger.info(f"Correlation results generated: {len(correlation_results)}")
 
-    logger.info("Building internal graph.")
+    logger.info("Building base graph.")
     graph = build_graph(
         normalized_hosts,
         normalized_discovered_hosts,
-        correlation_results
+        correlation_results,
+        findings=[],
+        ai_result=None,
     )
 
-    logger.info("Mapping graph to standardized graph schema.")
+    logger.info("Applying graph mapper to base graph.")
     mapped_graph = align_graph(graph)
     logger.info(
-        f"Graph mapping complete. "
+        f"Base graph mapping complete. "
         f"Mapped nodes: {mapped_graph['summary']['node_count']}, "
-        f"mapped edges: {mapped_graph['summary']['edge_count']}"
+        f"Mapped edges: {mapped_graph['summary']['edge_count']}"
     )
 
     logger.info("Building consolidated dataset.")
@@ -176,6 +176,8 @@ def process_reports(report_paths: List[str], batch_id: str, logger: AuditLogger)
         "graph": graph,
         "graph_mapping_status": "complete",
         "mapped_graph": mapped_graph,
+        "graph_persistence_status": "not_started",
+        "graph_persistence": None,
     }
 
     logger.info("Running Phase 5 analysis.")
@@ -199,6 +201,25 @@ def process_reports(report_paths: List[str], batch_id: str, logger: AuditLogger)
         logger=logger,
     )
 
+    logger.info("Rebuilding graph with findings and AI outputs.")
+    graph = build_graph(
+        normalized_hosts,
+        normalized_discovered_hosts,
+        correlation_results,
+        findings=findings,
+        ai_result=ai_result,
+    )
+
+    logger.info("Applying graph mapper to enriched graph.")
+    mapped_graph = align_graph(graph)
+    logger.info(
+        f"Enriched graph mapping complete. "
+        f"Mapped nodes: {mapped_graph['summary']['node_count']}, "
+        f"Mapped edges: {mapped_graph['summary']['edge_count']}"
+    )
+
+    consolidated["graph"] = graph
+    consolidated["mapped_graph"] = mapped_graph
     consolidated["ai_phase_1"] = ai_result
 
     scoreboard_markdown = build_scoreboard_markdown(consolidated, findings, summary)
@@ -222,6 +243,38 @@ def process_reports(report_paths: List[str], batch_id: str, logger: AuditLogger)
 
     logger.info(f"Writing scoreboard markdown report to: {outputs['scoreboard']}")
     write_text_file(outputs["scoreboard"], scoreboard_markdown)
+
+    logger.info("Primary collector outputs written successfully.")
+
+    graph_persistence = None
+    try:
+        logger.info(f"Persisting mapped graph to Kuzu: {KUZU_DB_PATH}")
+        graph_persistence = persist_mapped_graph(
+            mapped_graph=mapped_graph,
+            db_path=KUZU_DB_PATH,
+            run_id=batch_id,
+            observed_at=datetime.now(timezone.utc).isoformat(),
+        )
+        consolidated["graph_persistence_status"] = "complete"
+        consolidated["graph_persistence"] = graph_persistence
+
+        logger.info(
+            f"Kuzu persistence complete. "
+            f"Nodes={graph_persistence.get('node_count', 0)}, "
+            f"Edges={graph_persistence.get('edge_count', 0)}, "
+            f"MissingNodes={graph_persistence.get('nodes_marked_missing', 0)}, "
+            f"InactiveEdges={graph_persistence.get('edges_marked_inactive', 0)}"
+        )
+    except Exception as exc:
+        consolidated["graph_persistence_status"] = "failed"
+        consolidated["graph_persistence"] = {
+            "ok": False,
+            "error": str(exc),
+        }
+        logger.info(f"Kuzu persistence failed: {exc}")
+
+    logger.info(f"Re-writing consolidated dataset to include graph persistence status: {outputs['consolidated']}")
+    write_json(outputs["consolidated"], consolidated)
 
     logger.info("Collector execution complete.")
 

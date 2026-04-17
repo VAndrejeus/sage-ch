@@ -75,13 +75,15 @@ def rule_matches_host(rule: Any, host: Dict[str, Any]) -> bool:
     if condition == "uckg_alignment_missing":
         uckg_entity_id = get_first_present(
             host,
-            ["uckg_entity_id", "entity_id", "aligned_entity_id"]
+            ["uckg_entity_id", "entity_id", "aligned_entity_id"],
         )
         return is_blank(uckg_entity_id)
 
     if condition == "excessive_interface_count":
         interfaces = get_network_interfaces(host)
         threshold = rule.metadata.get("threshold", 10)
+        if not isinstance(threshold, int):
+            threshold = 10
         return len(interfaces) > threshold
 
     if condition == "no_default_gateway":
@@ -186,9 +188,18 @@ def rule_matches_host(rule: Any, host: Dict[str, Any]) -> bool:
     if condition == "weak_password_policy_combined":
         policy = host.get("security_config", {}).get("account_policy", {})
         complexity = host.get("security_config", {}).get("password_complexity", {})
+
+        min_len = policy.get("minimum_password_length")
+        history = policy.get("password_history_length")
+
+        if not isinstance(min_len, int):
+            min_len = 0
+        if not isinstance(history, int):
+            history = 0
+
         return (
-            policy.get("minimum_password_length", 0) < 8
-            and policy.get("password_history_length", 0) < 5
+            min_len < 8
+            and history < 5
             and complexity.get("enabled") is False
         )
 
@@ -341,7 +352,6 @@ def rule_matches_host(rule: Any, host: Dict[str, Any]) -> bool:
         except Exception:
             return True
 
-        # LINUX CONDITIONS
     if condition == "linux_firewall_disabled":
         fw = host.get("security_config", {}).get("firewall", {})
         return fw.get("enabled") is not True
@@ -401,7 +411,7 @@ def rule_matches_host(rule: Any, host: Dict[str, Any]) -> bool:
 def get_hostname(host: Dict[str, Any]) -> str:
     value = get_first_present(
         host,
-        ["hostname", "host_name", "device_name", "endpoint_name"]
+        ["hostname", "host_name", "device_name", "endpoint_name"],
     )
     return "" if value is None else str(value).strip()
 
@@ -409,7 +419,7 @@ def get_hostname(host: Dict[str, Any]) -> str:
 def get_platform(host: Dict[str, Any]) -> str:
     value = get_first_present(
         host,
-        ["platform", "os_family", "os_type", "source_os"]
+        ["platform", "os_family", "os_type", "source_os"],
     )
 
     if value is None:
@@ -433,7 +443,7 @@ def get_platform(host: Dict[str, Any]) -> str:
     return platform
 
 
-def get_primary_ip(host):
+def get_primary_ip(host: Dict[str, Any]) -> str:
     network = host.get("network", {})
     interfaces = network.get("interfaces", [])
 
@@ -444,12 +454,10 @@ def get_primary_ip(host):
         if not isinstance(iface, dict):
             continue
 
-        # IPv4 (skip loopback)
         for ip in iface.get("ipv4", []):
             if ip and not ip.startswith("127."):
                 best_ipv4 = ip
 
-        # IPv6 (skip loopback + link-local)
         for ip in iface.get("ipv6", []):
             if not ip:
                 continue
@@ -473,14 +481,14 @@ def get_primary_ip(host):
 def get_update_data(host: Dict[str, Any]) -> Any:
     return get_first_present(
         host,
-        ["update_assessment", "update_status", "updates", "patch_status"]
+        ["update_assessment", "update_status", "updates", "patch_status"],
     )
 
 
 def get_missing_updates(host: Dict[str, Any]) -> List[Any]:
     missing_updates = get_first_present(
         host,
-        ["missing_updates", "missing_security_updates", "available_updates"]
+        ["missing_updates", "missing_security_updates", "available_updates"],
     )
 
     if missing_updates is None:
@@ -506,14 +514,14 @@ def get_missing_updates(host: Dict[str, Any]) -> List[Any]:
 def get_software_inventory(host: Dict[str, Any]) -> Any:
     return get_first_present(
         host,
-        ["software", "software_inventory", "installed_software", "packages", "applications"]
+        ["software", "software_inventory", "installed_software", "packages", "applications"],
     )
 
 
 def get_network_interfaces(host: Dict[str, Any]) -> List[Any]:
     interfaces = get_first_present(
         host,
-        ["network_interfaces", "interfaces", "ip_addresses", "network_adapters"]
+        ["network_interfaces", "interfaces", "ip_addresses", "network_adapters"],
     )
     if isinstance(interfaces, list):
         return interfaces

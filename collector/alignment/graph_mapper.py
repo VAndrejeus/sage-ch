@@ -23,15 +23,16 @@ EDGE_TYPE_MAP = {
     "HOST_HAS_UPDATE_STATUS": "HAS_PATCH_STATUS",
     "HOST_EXPOSES_SERVICE": "EXPOSES_SERVICE",
     "HOST_HAS_FINDING": "HAS_FINDING",
-    "FINDING_HAS_EVIDENCE": "HAS_EVIDENCE",
     "FINDING_MAPS_TO_CONTROL": "MAPS_TO_CONTROL",
+    "FINDING_HAS_EVIDENCE": "SUPPORTED_BY",
+    "HOST_HAS_EXPLANATION": "HAS_EXPLANATION",
+    "HOST_HAS_REMEDIATION": "HAS_REMEDIATION",
     "ASSESSMENT_GENERATED_FINDING": "GENERATED_FINDING",
     "OBSERVATION_OF": "OBSERVATION_OF",
     "ASSESSES": "ASSESSES",
     "EXPLAINS": "EXPLAINS",
     "REMEDIATES": "REMEDIATES",
 }
-
 
 SEMANTIC_TYPE_MAP = {
     "Host": "device",
@@ -49,7 +50,6 @@ SEMANTIC_TYPE_MAP = {
     "Entity": "entity",
     "Relationship": "relationship",
 }
-
 
 RESERVED_NODE_KEYS = {"id", "type", "label", "properties", "semantic_type", "original_type"}
 RESERVED_EDGE_KEYS = {"source", "target", "type", "properties", "semantic_type", "original_type"}
@@ -108,6 +108,7 @@ def _host_properties(node: Dict[str, Any]) -> Dict[str, Any]:
         "hostname": node.get("hostname") or node.get("label"),
         "os_name": node.get("os_name"),
         "os_version": node.get("os_version"),
+        "platform": node.get("platform"),
         "primary_ip": node.get("primary_ip"),
         "primary_mac": node.get("primary_mac"),
         "source": node.get("source"),
@@ -143,6 +144,7 @@ def _software_properties(node: Dict[str, Any]) -> Dict[str, Any]:
         "vendor": node.get("vendor") or node.get("publisher"),
         "version": node.get("version"),
         "normalized_name": node.get("normalized_name"),
+        "arch": node.get("arch"),
     }
 
 
@@ -151,6 +153,11 @@ def _patch_status_properties(node: Dict[str, Any]) -> Dict[str, Any]:
         "status": node.get("status") or node.get("label"),
         "last_checked": node.get("last_checked"),
         "patch_source": node.get("patch_source"),
+        "method": node.get("method"),
+        "updates_available": node.get("updates_available"),
+        "updates_count": node.get("updates_count"),
+        "latest_hotfix_date": node.get("latest_hotfix_date"),
+        "note": node.get("note"),
     }
 
 
@@ -166,6 +173,7 @@ def _service_properties(node: Dict[str, Any]) -> Dict[str, Any]:
 
 def _finding_properties(node: Dict[str, Any]) -> Dict[str, Any]:
     return {
+        "finding_id": node.get("finding_id") or node.get("id"),
         "rule_id": node.get("rule_id"),
         "title": node.get("title") or node.get("label"),
         "description": node.get("description"),
@@ -173,8 +181,12 @@ def _finding_properties(node: Dict[str, Any]) -> Dict[str, Any]:
         "category": node.get("category"),
         "status": node.get("status"),
         "score": node.get("score"),
+        "expected": node.get("expected"),
+        "recommendation": node.get("recommendation"),
         "detected_at": node.get("detected_at"),
         "resolved_at": node.get("resolved_at"),
+        "created_at": node.get("created_at"),
+        "hostname": node.get("hostname"),
     }
 
 
@@ -183,6 +195,7 @@ def _evidence_properties(node: Dict[str, Any]) -> Dict[str, Any]:
         "evidence_type": node.get("evidence_type") or node.get("type_name") or node.get("label"),
         "source": node.get("source"),
         "value": node.get("value"),
+        "reason": node.get("reason"),
         "captured_at": node.get("captured_at"),
     }
 
@@ -212,6 +225,8 @@ def _explanation_properties(node: Dict[str, Any]) -> Dict[str, Any]:
         "confidence": node.get("confidence"),
         "model_name": node.get("model_name"),
         "created_at": node.get("created_at"),
+        "risk_level": node.get("risk_level"),
+        "finding_count": node.get("finding_count"),
     }
 
 
