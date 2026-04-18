@@ -3,7 +3,7 @@ from __future__ import annotations
 import hashlib
 import json
 import os
-from typing import Any, Dict, Iterable, Optional, Set
+from typing import Any, Dict, Iterable, Optional, Set, Tuple
 
 import kuzu
 import pandas as pd
@@ -46,6 +46,20 @@ class KuzuGraphBackend:
         df = self._fetch_df(
             "MATCH (e:GraphEdge {id: $id}) RETURN COUNT(e) AS c;",
             {"id": edge_id},
+        )
+        return not df.empty and int(df.iloc[0]["c"]) > 0
+
+    def _exists_node_observation(self, observation_id: str) -> bool:
+        df = self._fetch_df(
+            "MATCH (o:NodeObservation {id: $id}) RETURN COUNT(o) AS c;",
+            {"id": observation_id},
+        )
+        return not df.empty and int(df.iloc[0]["c"]) > 0
+
+    def _exists_edge_observation(self, observation_id: str) -> bool:
+        df = self._fetch_df(
+            "MATCH (o:EdgeObservation {id: $id}) RETURN COUNT(o) AS c;",
+            {"id": observation_id},
         )
         return not df.empty and int(df.iloc[0]["c"]) > 0
 
@@ -152,6 +166,67 @@ class KuzuGraphBackend:
     def _to_json(value: Any) -> str:
         return json.dumps(value or {}, sort_keys=True, default=str)
 
+    @staticmethod
+    def _normalize_node(node: Dict[str, Any]) -> Dict[str, Any]:
+        return {
+            "id": str(node.get("id") or "").strip(),
+            "type": str(node.get("type") or "Entity"),
+            "label": str(node.get("label") or node.get("id") or ""),
+            "original_type": str(node.get("original_type") or ""),
+            "semantic_type": str(node.get("semantic_type") or "entity"),
+            "properties": node.get("properties"),
+        }
+
+    @staticmethod
+    def _normalize_edge(edge: Dict[str, Any]) -> Dict[str, Any]:
+        return {
+            "source": str(edge.get("source") or "").strip(),
+            "target": str(edge.get("target") or "").strip(),
+            "type": str(edge.get("type") or "RELATED_TO"),
+            "original_type": str(edge.get("original_type") or ""),
+            "semantic_type": str(edge.get("semantic_type") or "relationship"),
+            "properties": edge.get("properties"),
+        }
+
+    def _dedupe_nodes(self, nodes: Iterable[Dict[str, Any]]) -> list[Dict[str, Any]]:
+        deduped: list[Dict[str, Any]] = []
+        seen: Set[str] = set()
+
+        for raw_node in nodes:
+            if not isinstance(raw_node, dict):
+                continue
+
+            node = self._normalize_node(raw_node)
+            node_id = node["id"]
+            if not node_id or node_id in seen:
+                continue
+
+            seen.add(node_id)
+            deduped.append(node)
+
+        return deduped
+
+    def _dedupe_edges(self, edges: Iterable[Dict[str, Any]]) -> list[Dict[str, Any]]:
+        deduped: list[Dict[str, Any]] = []
+        seen: Set[Tuple[str, str, str]] = set()
+
+        for raw_edge in edges:
+            if not isinstance(raw_edge, dict):
+                continue
+
+            edge = self._normalize_edge(raw_edge)
+            if not edge["source"] or not edge["target"]:
+                continue
+
+            key = (edge["source"], edge["target"], edge["type"])
+            if key in seen:
+                continue
+
+            seen.add(key)
+            deduped.append(edge)
+
+        return deduped
+
     def upsert_node(self, node: Dict[str, Any], observed_at: str, run_id: str) -> None:
         conn = self._require_conn()
 
@@ -227,28 +302,29 @@ class KuzuGraphBackend:
 
         observation_id = self.build_node_observation_id(node_id, observed_at, run_id)
 
-        conn.execute(
-            """
-            CREATE (o:NodeObservation {
-                id: $id,
-                node_id: $node_id,
-                observed_at: $observed_at,
-                run_id: $run_id,
-                type: $type,
-                label: $label,
-                properties_json: $properties_json
-            });
-            """,
-            {
-                "id": observation_id,
-                "node_id": node_id,
-                "observed_at": observed_at,
-                "run_id": run_id,
-                "type": node_type,
-                "label": label,
-                "properties_json": properties_json,
-            },
-        )
+        if not self._exists_node_observation(observation_id):
+            conn.execute(
+                """
+                CREATE (o:NodeObservation {
+                    id: $id,
+                    node_id: $node_id,
+                    observed_at: $observed_at,
+                    run_id: $run_id,
+                    type: $type,
+                    label: $label,
+                    properties_json: $properties_json
+                });
+                """,
+                {
+                    "id": observation_id,
+                    "node_id": node_id,
+                    "observed_at": observed_at,
+                    "run_id": run_id,
+                    "type": node_type,
+                    "label": label,
+                    "properties_json": properties_json,
+                },
+            )
 
         self._create_relation("OBSERVATION_OF_NODE", observation_id, node_id)
 
@@ -335,30 +411,31 @@ class KuzuGraphBackend:
 
         observation_id = self.build_edge_observation_id(edge_id, observed_at, run_id, properties_json)
 
-        conn.execute(
-            """
-            CREATE (o:EdgeObservation {
-                id: $id,
-                edge_id: $edge_id,
-                observed_at: $observed_at,
-                run_id: $run_id,
-                source_id: $source_id,
-                target_id: $target_id,
-                type: $type,
-                properties_json: $properties_json
-            });
-            """,
-            {
-                "id": observation_id,
-                "edge_id": edge_id,
-                "observed_at": observed_at,
-                "run_id": run_id,
-                "source_id": source_id,
-                "target_id": target_id,
-                "type": edge_type,
-                "properties_json": properties_json,
-            },
-        )
+        if not self._exists_edge_observation(observation_id):
+            conn.execute(
+                """
+                CREATE (o:EdgeObservation {
+                    id: $id,
+                    edge_id: $edge_id,
+                    observed_at: $observed_at,
+                    run_id: $run_id,
+                    source_id: $source_id,
+                    target_id: $target_id,
+                    type: $type,
+                    properties_json: $properties_json
+                });
+                """,
+                {
+                    "id": observation_id,
+                    "edge_id": edge_id,
+                    "observed_at": observed_at,
+                    "run_id": run_id,
+                    "source_id": source_id,
+                    "target_id": target_id,
+                    "type": edge_type,
+                    "properties_json": properties_json,
+                },
+            )
 
         self._create_relation("OBSERVATION_OF_EDGE", observation_id, edge_id)
         return edge_id
@@ -448,21 +525,22 @@ class KuzuGraphBackend:
         observed_at: str,
         run_id: str,
     ) -> Dict[str, Any]:
-        nodes = mapped_graph.get("nodes", [])
-        edges = mapped_graph.get("edges", [])
+        raw_nodes = mapped_graph.get("nodes", [])
+        raw_edges = mapped_graph.get("edges", [])
+
+        nodes = self._dedupe_nodes(raw_nodes if isinstance(raw_nodes, list) else [])
+        edges = self._dedupe_edges(raw_edges if isinstance(raw_edges, list) else [])
 
         observed_node_ids: Set[str] = set()
         observed_edge_ids: Set[str] = set()
 
         for node in nodes:
-            if not isinstance(node, dict) or not node.get("id"):
+            if not node.get("id"):
                 continue
             self.upsert_node(node, observed_at=observed_at, run_id=run_id)
             observed_node_ids.add(str(node["id"]))
 
         for edge in edges:
-            if not isinstance(edge, dict):
-                continue
             if not edge.get("source") or not edge.get("target"):
                 continue
             edge_id = self.upsert_edge(edge, observed_at=observed_at, run_id=run_id)
