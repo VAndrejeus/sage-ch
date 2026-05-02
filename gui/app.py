@@ -3,17 +3,11 @@ import sys
 
 import streamlit as st
 
-st.set_page_config(
-    page_title="SAGE-CH",
-    page_icon="🛡️",
-    layout="wide",
-)
-
 GUI_DIR = Path(__file__).resolve().parent
 if str(GUI_DIR) not in sys.path:
     sys.path.append(str(GUI_DIR))
 
-from services.nav import render_sidebar
+from services.nav import get_logo_path, render_sidebar
 from services.data_loader import (
     get_graph_db_path,
     load_graph_counts_from_consolidated,
@@ -22,6 +16,14 @@ from services.data_loader import (
     load_latest_findings_df,
 )
 from services.metrics import build_dashboard_metrics
+
+logo_path = get_logo_path()
+
+st.set_page_config(
+    page_title="SAGE-CH",
+    page_icon=str(logo_path) if logo_path.exists() else "🛡️",
+    layout="wide",
+)
 
 
 def _is_graph_persistence_success(status: str | None) -> bool:
@@ -32,14 +34,22 @@ def _is_graph_persistence_success(status: str | None) -> bool:
 
 render_sidebar()
 
-st.title("SAGE-CH Security Console")
-st.caption("Security Assessment using Graph-based Evaluation for Cyber Hygiene")
+top_header = st.container(border=True)
+with top_header:
+    left, right = st.columns([1, 3])
 
-st.markdown(
-    "Operational console for cyber hygiene assessment combining endpoint data, "
-    "network discovery, knowledge graph analysis, CIS Controls mapping, "
-    "and AI-assisted remediation insights."
-)
+    with left:
+        if logo_path.exists():
+            st.image(str(logo_path), use_container_width=True)
+
+    with right:
+        st.title("SAGE-CH Security Console")
+        st.caption("Security Assessment using Graph-based Evaluation for Cyber Hygiene")
+        st.markdown(
+            "Operational console for cyber hygiene assessment combining endpoint data, "
+            "network discovery, knowledge graph analysis, CIS Controls mapping, "
+            "and AI-assisted remediation insights."
+        )
 
 top_bar = st.container(border=True)
 with top_bar:
@@ -88,7 +98,7 @@ with main_left:
         st.subheader("Platform Summary")
         st.write(
             "SAGE-CH provides an operational interface for cyber hygiene assessment across "
-            "endpoint telemetry, discovery-driven visibility, graph relationships, findings analysis, "
+            "endpoint data, discovery-driven visibility, graph relationships, findings analysis, "
             "and AI-assisted remediation."
         )
 

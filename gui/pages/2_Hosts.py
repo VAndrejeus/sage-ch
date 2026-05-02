@@ -12,62 +12,38 @@ if str(GUI_DIR) not in sys.path:
 
 from services.nav import render_sidebar
 from services.data_loader import load_ai_for_host, load_hosts_df_from_consolidated, load_latest_findings_df
+from services.report_service import build_host_pdf_report
 
 render_sidebar()
 
 st.title("Hosts")
-st.caption("Browse managed hosts, inspect host details, review findings, and view AI explanation and remediation output.")
-
-top_bar = st.container(border=True)
-with top_bar:
-    left, right = st.columns([1, 4])
-
-    with left:
-        if st.button("Refresh", use_container_width=True):
-            st.rerun()
-
-    with right:
-        st.info(
-            "Select a host to inspect inventory, findings, AI explanation, and remediation plan.",
-            icon="ℹ️",
-        )
+st.caption("Host-level security posture, CIS-mapped findings, software inventory, AI explanation, and remediation guidance.")
 
 hosts_df, hosts_path = load_hosts_df_from_consolidated()
 findings_df, findings_path = load_latest_findings_df()
 
 if hosts_df.empty:
-    st.warning("No host data found in consolidated dataset.")
+    st.warning("No host data found.")
     st.stop()
 
 if "hostname" not in hosts_df.columns:
     st.warning("Host dataset is missing the hostname field.")
     st.stop()
 
-top_metrics = st.container(border=True)
-with top_metrics:
-    st.subheader("Overview")
+host_options = hosts_df["hostname"].fillna("unknown").astype(str).tolist()
 
-    total_hosts = len(hosts_df)
-    total_software = int(pd.to_numeric(hosts_df.get("software_count", 0), errors="coerce").fillna(0).sum()) if "software_count" in hosts_df.columns else 0
-    total_findings = len(findings_df) if not findings_df.empty else 0
+top_bar = st.container(border=True)
+with top_bar:
+    left, right = st.columns([3, 1])
 
-    m1, m2, m3 = st.columns(3)
-    m1.metric("Hosts", total_hosts)
-    m2.metric("Software Items", total_software)
-    m3.metric("Findings Loaded", total_findings)
+    with left:
+        selected_host = st.selectbox("Select Host", host_options)
 
-table_box = st.container(border=True)
-with table_box:
-    st.subheader("Host Table")
-
-    table_cols = [c for c in ["hostname", "ip", "platform", "os_name", "software_count"] if c in hosts_df.columns]
-    st.dataframe(hosts_df[table_cols], use_container_width=True, hide_index=True)
-
-selector_box = st.container(border=True)
-with selector_box:
-    st.subheader("Host Selection")
-    host_options = hosts_df["hostname"].fillna("unknown").astype(str).tolist()
-    selected_host = st.selectbox("Select host", host_options)
+    with right:
+        st.write("")
+        st.write("")
+        if st.button("Refresh", use_container_width=True):
+            st.rerun()
 
 host_row = hosts_df[hosts_df["hostname"].astype(str) == selected_host].head(1)
 if host_row.empty:
@@ -89,101 +65,197 @@ ai_data = load_ai_for_host(selected_host)
 explanation = ai_data.get("explanation")
 remediation = ai_data.get("remediation", [])
 
-detail_metrics = st.container(border=True)
-with detail_metrics:
+cis_count = 0
+if not host_findings.empty and "cis_controls" in host_findings.columns:
+    cis_set = set()
+    for value in host_findings["cis_controls"].dropna().astype(str).tolist():
+        for part in value.replace(";", ",").split(","):
+            part = part.strip()
+            if part:
+                cis_set.add(part)
+    cis_count = len(cis_set)
+
+severity_counts = {}
+if not host_findings.empty and "severity" in host_findings.columns:
+    severity_counts = host_findings["severity"].fillna("").astype(str).str.lower().value_counts().to_dict()
+
+summary_box = st.container(border=True)
+with summary_box:
     st.subheader("Selected Host Summary")
 
-    dm1, dm2, dm3, dm4 = st.columns(4)
-    dm1.metric("Hostname", host_record.get("hostname", ""))
-    dm2.metric("IP", host_record.get("ip", "") or "N/A")
-    dm3.metric("Software", len(software_items))
-    dm4.metric("Findings", len(host_findings))
+    c1, c2, c3, c4, c5, c6 = st.columns(6)
+    c1.metric("Hostname", host_record.get("hostname", ""))
+    c2.metric("IP", host_record.get("ip", "") or "N/A")
+    c3.metric("Software", len(software_items))
+    c4.metric("Findings", len(host_findings))
+    c5.metric("CIS Controls", cis_count)
+    c6.metric("Critical", severity_counts.get("critical", 0))
 
-main_left, main_mid, main_right = st.columns([1, 1.1, 1])
+export_box = st.container(border=True)
+with export_box:
+    left, right = st.columns([3, 1])
+
+    with left:
+        st.subheader("Export Host Report")
+        st.caption("Generate a host-level PDF with system details, findings, AI explanation, and remediation guidance.")
+
+    with right:
+        try:
+            pdf_bytes = build_host_pdf_report(
+                host_record=host_record,
+                software_items=software_items,
+                host_findings=host_findings,
+                ai_data=ai_data,
+            )
+
+            safe_hostname = str(selected_host).replace(" ", "_").replace("/", "_").replace("\\", "_")
+            st.download_button(
+                label="Download PDF",
+                data=pdf_bytes,
+                file_name=f"sage_ch_host_report_{safe_hostname}.pdf",
+                mime="application/pdf",
+                use_container_width=True,
+            )
+        except Exception as exc:
+            st.warning(str(exc))
+
+main_left, main_right = st.columns([0.95, 1.35])
 
 with main_left:
-    info_box = st.container(border=True)
-    with info_box:
-        st.subheader("Host Info")
+    host_box = st.container(border=True)
+    with host_box:
+        st.subheader("System Details")
 
         info_rows = [
-            {"field": "hostname", "value": host_record.get("hostname", "")},
-            {"field": "ip", "value": host_record.get("ip", "")},
-            {"field": "platform", "value": host_record.get("platform", "")},
-            {"field": "os_name", "value": host_record.get("os_name", "")},
-            {"field": "os_version", "value": host_record.get("os_version", "")},
+            {"Field": "Hostname", "Value": host_record.get("hostname", "")},
+            {"Field": "IP Address", "Value": host_record.get("ip", "")},
+            {"Field": "Platform", "Value": host_record.get("platform", "")},
+            {"Field": "OS Name", "Value": host_record.get("os_name", "")},
+            {"Field": "OS Version", "Value": host_record.get("os_version", "")},
         ]
         st.dataframe(pd.DataFrame(info_rows), use_container_width=True, hide_index=True)
 
     software_box = st.container(border=True)
     with software_box:
-        st.subheader("Software")
+        st.subheader("Software Inventory")
 
         if software_items:
             software_df = pd.DataFrame(
                 [
                     {
-                        "name": item.get("name", ""),
-                        "version": item.get("version", ""),
-                        "arch": item.get("arch", ""),
+                        "Name": item.get("name", ""),
+                        "Version": item.get("version", ""),
+                        "Arch": item.get("arch", ""),
                     }
                     for item in software_items
                     if isinstance(item, dict)
                 ]
             )
-            st.dataframe(software_df, use_container_width=True, hide_index=True)
+            st.dataframe(software_df, use_container_width=True, hide_index=True, height=360)
         else:
             st.info("No software items found.")
 
-with main_mid:
+with main_right:
     findings_box = st.container(border=True)
     with findings_box:
         st.subheader("Findings")
 
         if host_findings.empty:
-            st.info("No findings found for this host.")
+            st.success("No findings found for this host.")
         else:
-            show_cols = [c for c in ["finding_id", "title", "severity", "category", "status", "recommendation"] if c in host_findings.columns]
-            st.dataframe(host_findings[show_cols], use_container_width=True, hide_index=True)
+            display_df = host_findings.copy()
 
-with main_right:
-    ai_box = st.container(border=True)
-    with ai_box:
-        st.subheader("AI Explanation")
+            if "severity" in display_df.columns:
+                severity_order = {
+                    "critical": 0,
+                    "high": 1,
+                    "medium": 2,
+                    "low": 3,
+                }
 
-        if explanation:
-            st.write(explanation.get("overall_explanation", ""))
+                display_df["_severity_rank"] = (
+                    display_df["severity"]
+                    .fillna("")
+                    .astype(str)
+                    .str.lower()
+                    .map(severity_order)
+                    .fillna(99)
+                )
 
-            key_risk_drivers = explanation.get("key_risk_drivers", [])
-            if key_risk_drivers:
-                st.markdown("#### Key Risk Drivers")
-                for item in key_risk_drivers:
-                    st.write(f"- {item}")
-        else:
-            st.info("No AI explanation found.")
+                sort_cols = ["_severity_rank"]
+                ascending = [True]
 
-    remediation_box = st.container(border=True)
-    with remediation_box:
-        st.subheader("Remediation")
+                if "category" in display_df.columns:
+                    sort_cols.append("category")
+                    ascending.append(True)
 
-        if remediation:
-            for item in remediation:
-                priority = item.get("priority", "")
-                title = item.get("title", "")
-                reason = item.get("reason", "")
-                actions = item.get("actions", [])
+                if "title" in display_df.columns:
+                    sort_cols.append("title")
+                    ascending.append(True)
 
-                st.markdown(f"**Priority {priority}: {title}**")
-                if reason:
-                    st.write(reason)
+                display_df = display_df.sort_values(by=sort_cols, ascending=ascending)
 
-                if actions:
-                    for action in actions:
-                        st.write(f"- {action}")
+            rename_map = {
+                "cis_controls": "CIS Control",
+                "category": "Category",
+                "severity": "Severity",
+                "title": "Title",
+                "recommendation": "Recommendations",
+            }
 
-                st.divider()
-        else:
-            st.info("No remediation entries found.")
+            show_cols = [
+                c
+                for c in [
+                    "cis_controls",
+                    "category",
+                    "severity",
+                    "title",
+                    "recommendation",
+                ]
+                if c in display_df.columns
+            ]
+
+            display_df = display_df[show_cols].rename(columns=rename_map)
+            st.dataframe(display_df, use_container_width=True, hide_index=True, height=495)
+
+ai_box = st.container(border=True)
+with ai_box:
+    st.subheader("AI Explanation")
+
+    if explanation:
+        st.write(explanation.get("overall_explanation", ""))
+
+        key_risk_drivers = explanation.get("key_risk_drivers", [])
+        if key_risk_drivers:
+            st.markdown("#### Key Risk Drivers")
+            for item in key_risk_drivers:
+                st.write(f"- {item}")
+    else:
+        st.info("No AI explanation found.")
+
+remediation_box = st.container(border=True)
+with remediation_box:
+    st.subheader("Remediation Plan")
+
+    if remediation:
+        for item in remediation:
+            priority = item.get("priority", "")
+            title = item.get("title", "")
+            reason = item.get("reason", "")
+            actions = item.get("actions", [])
+
+            st.markdown(f"#### Priority {priority}: {title}")
+
+            if reason:
+                st.write(reason)
+
+            if actions:
+                for action in actions:
+                    st.write(f"- {action}")
+
+            st.divider()
+    else:
+        st.info("No remediation entries found.")
 
 footer_box = st.container(border=True)
 with footer_box:

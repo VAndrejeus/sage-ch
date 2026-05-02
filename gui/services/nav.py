@@ -1,10 +1,21 @@
 from __future__ import annotations
 
+from pathlib import Path
+
 import streamlit as st
 
 
+def get_logo_path() -> Path:
+    return Path(__file__).resolve().parents[1] / "assets" / "sage_ch_logo.png"
+
+
 def render_sidebar() -> None:
+    logo_path = get_logo_path()
+
     with st.sidebar:
+        if logo_path.exists():
+            st.image(str(logo_path), use_container_width=True)
+
         st.markdown("## SAGE-CH")
         st.caption("Security Console")
 

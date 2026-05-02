@@ -299,7 +299,7 @@ def main() -> int:
 
     ingestion = StagedIngestionService(
         collector_root=PROJECT_ROOT,
-        max_batch_size=25,
+        max_batch_size=150,
     )
 
     batch = ingestion.claim_batch()
