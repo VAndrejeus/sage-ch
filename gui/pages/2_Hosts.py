@@ -17,7 +17,7 @@ from services.report_service import build_host_pdf_report
 render_sidebar()
 
 st.title("Hosts")
-st.caption("Host-level security posture, CIS-mapped findings, software inventory, AI explanation, and remediation guidance.")
+st.caption("Host-level security posture, vulnerability findings, software inventory, AI explanation, and remediation guidance.")
 
 hosts_df, hosts_path = load_hosts_df_from_consolidated()
 findings_df, findings_path = load_latest_findings_df()
@@ -61,23 +61,53 @@ host_findings = pd.DataFrame()
 if not findings_df.empty and "hostname" in findings_df.columns:
     host_findings = findings_df[findings_df["hostname"].astype(str) == selected_host].copy()
 
+host_vulnerabilities = pd.DataFrame()
+if not host_findings.empty and "finding_type" in host_findings.columns:
+    host_vulnerabilities = host_findings[host_findings["finding_type"].astype(str) == "Vulnerability"].copy()
+
 ai_data = load_ai_for_host(selected_host)
 explanation = ai_data.get("explanation")
 remediation = ai_data.get("remediation", [])
 
-cis_count = 0
-if not host_findings.empty and "cis_controls" in host_findings.columns:
-    cis_set = set()
-    for value in host_findings["cis_controls"].dropna().astype(str).tolist():
-        for part in value.replace(";", ",").split(","):
-            part = part.strip()
-            if part:
-                cis_set.add(part)
-    cis_count = len(cis_set)
-
 severity_counts = {}
 if not host_findings.empty and "severity" in host_findings.columns:
     severity_counts = host_findings["severity"].fillna("").astype(str).str.lower().value_counts().to_dict()
+
+
+def sort_by_severity(df: pd.DataFrame) -> pd.DataFrame:
+    if df.empty or "severity" not in df.columns:
+        return df
+
+    severity_order = {
+        "critical": 0,
+        "high": 1,
+        "medium": 2,
+        "low": 3,
+    }
+
+    output = df.copy()
+    output["_severity_rank"] = (
+        output["severity"]
+        .fillna("")
+        .astype(str)
+        .str.lower()
+        .map(severity_order)
+        .fillna(99)
+    )
+
+    sort_cols = ["_severity_rank"]
+    ascending = [True]
+
+    if "category" in output.columns:
+        sort_cols.append("category")
+        ascending.append(True)
+
+    if "title" in output.columns:
+        sort_cols.append("title")
+        ascending.append(True)
+
+    return output.sort_values(by=sort_cols, ascending=ascending)
+
 
 summary_box = st.container(border=True)
 with summary_box:
@@ -88,7 +118,7 @@ with summary_box:
     c2.metric("IP", host_record.get("ip", "") or "N/A")
     c3.metric("Software", len(software_items))
     c4.metric("Findings", len(host_findings))
-    c5.metric("CIS Controls", cis_count)
+    c5.metric("CVE Findings", len(host_vulnerabilities))
     c6.metric("Critical", severity_counts.get("critical", 0))
 
 export_box = st.container(border=True)
@@ -163,44 +193,16 @@ with main_right:
         if host_findings.empty:
             st.success("No findings found for this host.")
         else:
-            display_df = host_findings.copy()
-
-            if "severity" in display_df.columns:
-                severity_order = {
-                    "critical": 0,
-                    "high": 1,
-                    "medium": 2,
-                    "low": 3,
-                }
-
-                display_df["_severity_rank"] = (
-                    display_df["severity"]
-                    .fillna("")
-                    .astype(str)
-                    .str.lower()
-                    .map(severity_order)
-                    .fillna(99)
-                )
-
-                sort_cols = ["_severity_rank"]
-                ascending = [True]
-
-                if "category" in display_df.columns:
-                    sort_cols.append("category")
-                    ascending.append(True)
-
-                if "title" in display_df.columns:
-                    sort_cols.append("title")
-                    ascending.append(True)
-
-                display_df = display_df.sort_values(by=sort_cols, ascending=ascending)
+            display_df = sort_by_severity(host_findings)
 
             rename_map = {
                 "cis_controls": "CIS Control",
                 "category": "Category",
                 "severity": "Severity",
+                "software_name": "Component",
+                "cve_id": "CVE",
                 "title": "Title",
-                "recommendation": "Recommendations",
+                "recommendation": "Recommendation",
             }
 
             show_cols = [
@@ -209,14 +211,77 @@ with main_right:
                     "cis_controls",
                     "category",
                     "severity",
+                    "software_name",
+                    "cve_id",
                     "title",
                     "recommendation",
                 ]
                 if c in display_df.columns
             ]
 
-            display_df = display_df[show_cols].rename(columns=rename_map)
-            st.dataframe(display_df, use_container_width=True, hide_index=True, height=495)
+            st.dataframe(
+                display_df[show_cols].rename(columns=rename_map),
+                use_container_width=True,
+                hide_index=True,
+                height=495,
+            )
+
+vulnerability_box = st.container(border=True)
+with vulnerability_box:
+    st.subheader("CVE Vulnerability Findings")
+
+    if host_vulnerabilities.empty:
+        st.info("No CVE findings found for this host.")
+    else:
+        display_df = sort_by_severity(host_vulnerabilities)
+
+        rename_map = {
+            "cis_controls": "CIS Control",
+            "software_name": "Software",
+            "installed_versions": "Installed Version",
+            "cve_id": "CVE",
+            "severity": "Severity",
+            "cvss_score": "CVSS",
+            "published": "Published",
+            "recommendation": "Recommendation",
+        }
+
+        show_cols = [
+            c
+            for c in [
+                "cis_controls",
+                "software_name",
+                "installed_versions",
+                "cve_id",
+                "severity",
+                "cvss_score",
+                "published",
+                "recommendation",
+            ]
+            if c in display_df.columns
+        ]
+
+        st.dataframe(
+            display_df[show_cols].rename(columns=rename_map),
+            use_container_width=True,
+            hide_index=True,
+            height=420,
+        )
+
+        selected_cve = st.selectbox(
+            "Review CVE details",
+            display_df["cve_id"].dropna().astype(str).unique().tolist(),
+        )
+
+        selected_rows = display_df[display_df["cve_id"].astype(str) == selected_cve].head(1)
+        if not selected_rows.empty:
+            row = selected_rows.iloc[0]
+            st.markdown(f"#### {row.get('title', selected_cve)}")
+            st.write(row.get("description", ""))
+            if row.get("ai_explanation", ""):
+                st.info(row.get("ai_explanation", ""), icon="🧠")
+            if row.get("recommendation", ""):
+                st.success(row.get("recommendation", ""), icon="✅")
 
 ai_box = st.container(border=True)
 with ai_box:

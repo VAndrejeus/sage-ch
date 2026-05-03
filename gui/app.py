@@ -17,105 +17,72 @@ from services.data_loader import (
 )
 from services.metrics import build_dashboard_metrics
 
+
 logo_path = get_logo_path()
 
 st.set_page_config(
     page_title="SAGE-CH",
-    page_icon=str(logo_path) if logo_path.exists() else "🛡️",
+    page_icon=str(logo_path) if logo_path.exists() else None,
     layout="wide",
 )
 
-
-def _is_graph_persistence_success(status: str | None) -> bool:
-    if not status:
-        return False
-    return str(status).strip().lower() in {"ok", "complete", "completed", "success"}
-
-
 render_sidebar()
-
-top_header = st.container(border=True)
-with top_header:
-    left, right = st.columns([1, 3])
-
-    with left:
-        if logo_path.exists():
-            st.image(str(logo_path), use_container_width=True)
-
-    with right:
-        st.title("SAGE-CH Security Console")
-        st.caption("Security Assessment using Graph-based Evaluation for Cyber Hygiene")
-        st.markdown(
-            "Operational console for cyber hygiene assessment combining endpoint data, "
-            "network discovery, knowledge graph analysis, CIS Controls mapping, "
-            "and AI-assisted remediation insights."
-        )
-
-top_bar = st.container(border=True)
-with top_bar:
-    left, right = st.columns([1, 4])
-
-    with left:
-        if st.button("Refresh", use_container_width=True):
-            st.rerun()
-
-    with right:
-        st.info(
-            "Use the sidebar to navigate across dashboards, graph views, batch artifacts, "
-            "collector settings, and collector actions.",
-            icon="ℹ️",
-        )
 
 hosts_df, hosts_path = load_hosts_df_from_consolidated()
 findings_df, findings_path = load_latest_findings_df()
 assessment_summary, summary_path = load_latest_assessment_summary_payload()
 graph_counts, graph_path = load_graph_counts_from_consolidated()
-
 metrics = build_dashboard_metrics(hosts_df, findings_df, assessment_summary)
+
 graph_persistence_status = graph_counts.get("graph_persistence_status", "unknown")
+batch_id = assessment_summary.get("batch_id", "N/A") if assessment_summary else "N/A"
 
-overview_box = st.container(border=True)
-with overview_box:
-    st.subheader("Overview")
-
-    m1, m2, m3, m4, m5 = st.columns(5)
-    m1.metric("Total Hosts", metrics["total_hosts"])
-    m2.metric("Managed Hosts", metrics["managed_hosts"])
-    m3.metric("Discovered Hosts", metrics["discovered_hosts"])
-    m4.metric("Total Findings", metrics["total_findings"])
-    m5.metric("Graph Persistence", graph_persistence_status)
-
-    if not _is_graph_persistence_success(graph_persistence_status):
-        st.warning("Graph persistence is not currently marked successful. Some views may fall back to output JSON instead of Kuzu.")
-    else:
-        st.success("Graph persistence is available for the current batch.")
-
-main_left, main_right = st.columns([1.1, 1])
-
-with main_left:
-    intro_box = st.container(border=True)
-    with intro_box:
-        st.subheader("Platform Summary")
+hero = st.container(border=True)
+with hero:
+    left, right = st.columns([1, 4])
+    with left:
+        if logo_path.exists():
+            st.image(str(logo_path), use_container_width=True)
+    with right:
+        st.title("SAGE-CH Security Console")
+        st.caption("Security Assessment using Graph-based Evaluation for Cyber Hygiene")
         st.write(
-            "SAGE-CH provides an operational interface for cyber hygiene assessment across "
-            "endpoint data, discovery-driven visibility, graph relationships, findings analysis, "
-            "and AI-assisted remediation."
+            "A Streamlit console for endpoint telemetry, CIS-aligned findings, CVE correlation, "
+            "graph analysis, and AI-assisted remediation."
         )
 
-        st.markdown("#### Core Areas")
-        st.write("- Dashboard for overall status and findings")
-        st.write("- Hosts for system-level inspection")
-        st.write("- Findings for filterable issue review")
-        st.write("- Graph for Kuzu-backed graph exploration")
-        st.write("- Batches for recent artifacts and outputs")
-        st.write("- Settings and Actions for collector operations")
+overview = st.container(border=True)
+with overview:
+    m1, m2, m3, m4, m5 = st.columns(5)
+    m1.metric("Hosts", metrics["total_hosts"])
+    m2.metric("Findings", metrics["total_findings"])
+    m3.metric("Critical", metrics["severity_counts"].get("critical", 0))
+    m4.metric("Graph", graph_persistence_status)
+    m5.metric("Batch", batch_id)
+
+main_left, main_right = st.columns([1, 1])
+
+with main_left:
+    workflow = st.container(border=True)
+    with workflow:
+        st.subheader("Primary Workflow")
+        st.write("1. Run collector from Actions.")
+        st.write("2. Confirm status in Pipeline Health.")
+        st.write("3. Review posture on Dashboard.")
+        st.write("4. Inspect hosts, findings, and graph relationships.")
 
 with main_right:
-    sources_box = st.container(border=True)
-    with sources_box:
+    health = st.container(border=True)
+    with health:
         st.subheader("Data Sources")
-        st.markdown(f"**Hosts source**  \n`{hosts_path if hosts_path else 'Not found'}`")
-        st.markdown(f"**Findings source**  \n`{findings_path if findings_path else 'Not found'}`")
-        st.markdown(f"**Assessment summary**  \n`{summary_path if summary_path else 'Not found'}`")
-        st.markdown(f"**Graph source**  \n`{graph_path if graph_path else 'Not found'}`")
-        st.markdown(f"**Kuzu DB path**  \n`{get_graph_db_path()}`")
+        st.write(f"Hosts: `{hosts_path.name if hosts_path else 'Not found'}`")
+        st.write(f"Findings: `{findings_path.name if findings_path else 'Not found'}`")
+        st.write(f"Summary: `{summary_path.name if summary_path else 'Not found'}`")
+        st.write(f"Graph: `{graph_path.name if graph_path else 'Not found'}`")
+
+with st.expander("Full Artifact Paths"):
+    st.markdown(f"**Hosts source:** `{hosts_path if hosts_path else 'Not found'}`")
+    st.markdown(f"**Findings source:** `{findings_path if findings_path else 'Not found'}`")
+    st.markdown(f"**Assessment summary:** `{summary_path if summary_path else 'Not found'}`")
+    st.markdown(f"**Graph source:** `{graph_path if graph_path else 'Not found'}`")
+    st.markdown(f"**Kuzu DB:** `{get_graph_db_path()}`")

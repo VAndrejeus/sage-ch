@@ -13,13 +13,19 @@ if str(GUI_DIR) not in sys.path:
     sys.path.append(str(GUI_DIR))
 
 from services.nav import render_sidebar
-from services.data_loader import get_graph_db_path, load_graph_counts_from_consolidated, load_latest_assessment_summary_payload
+from services.data_loader import (
+    get_graph_db_path,
+    load_graph_counts_from_consolidated,
+    load_graph_hosts_from_consolidated,
+    load_graph_neighborhood_from_consolidated,
+    load_latest_assessment_summary_payload,
+)
 from services.kuzu_service import get_kuzu_active_hosts, get_kuzu_graph_counts, get_kuzu_host_neighborhood
 
 render_sidebar()
 
 st.title("Graph")
-st.caption("Inspect graph state, node and edge counts, and render a host-centered graph directly from Kuzu.")
+st.caption("Inspect graph state, node and edge counts, and render a host-centered graph.")
 
 top_bar = st.container(border=True)
 with top_bar:
@@ -31,7 +37,8 @@ with top_bar:
 
     with right:
         st.info(
-            "This page draws a host-centered neighborhood directly from Kuzu. "
+            "This page draws a host-centered neighborhood from Kuzu when available, "
+            "or from the latest consolidated graph JSON when Kuzu is unavailable. "
             "Select a host to render only its immediate graph neighborhood.",
             icon="ℹ️",
         )
@@ -40,11 +47,24 @@ graph_db_path = get_graph_db_path()
 kuzu_counts = get_kuzu_graph_counts(graph_db_path)
 json_graph_counts, graph_path = load_graph_counts_from_consolidated()
 assessment_summary, summary_path = load_latest_assessment_summary_payload()
-hosts_result = get_kuzu_active_hosts(graph_db_path)
 
-graph_counts = kuzu_counts if kuzu_counts.get("ok") else json_graph_counts
-graph_source = "Kuzu" if kuzu_counts.get("ok") else "Consolidated JSON fallback"
+kuzu_available = bool(kuzu_counts.get("ok"))
+graph_counts = kuzu_counts if kuzu_available else json_graph_counts
+graph_source = "Kuzu" if kuzu_available else "Consolidated JSON fallback"
 graph_persistence_status = json_graph_counts.get("graph_persistence_status", "unknown")
+hosts_result = get_kuzu_active_hosts(graph_db_path) if kuzu_available else {
+    "ok": False,
+    "error": "",
+    "hosts_df": pd.DataFrame(),
+}
+
+if not hosts_result.get("ok") and not kuzu_available:
+    fallback_hosts_df, _fallback_hosts_path = load_graph_hosts_from_consolidated()
+    hosts_result = {
+        "ok": not fallback_hosts_df.empty,
+        "error": "No Host nodes found in consolidated graph JSON." if fallback_hosts_df.empty else "",
+        "hosts_df": fallback_hosts_df,
+    }
 
 all_node_types = sorted(graph_counts.get("node_counts", {}).keys()) if graph_counts.get("node_counts") else []
 default_types = [x for x in all_node_types if x not in {"EdgeObservation", "NodeObservation"}] or all_node_types
@@ -110,12 +130,19 @@ with controls_box:
         )
 
 if hosts_result.get("ok") and selected_host_id:
-    subgraph = get_kuzu_host_neighborhood(
-        graph_db_path,
-        host_id=selected_host_id,
-        max_nodes=max_nodes,
-        allowed_node_types=selected_node_types,
-    )
+    if kuzu_available:
+        subgraph = get_kuzu_host_neighborhood(
+            graph_db_path,
+            host_id=selected_host_id,
+            max_nodes=max_nodes,
+            allowed_node_types=selected_node_types,
+        )
+    else:
+        subgraph, _subgraph_path = load_graph_neighborhood_from_consolidated(
+            host_id=selected_host_id,
+            max_nodes=max_nodes,
+            allowed_node_types=selected_node_types,
+        )
 else:
     subgraph = {
         "ok": False,

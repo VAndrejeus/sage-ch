@@ -1,6 +1,6 @@
 # SAGE-CH
 
-SAGE-CH (Security Assessment using Graph-based Evaluation for Cyber Hygiene) is a cross-platform cyber hygiene assessment framework that integrates endpoint telemetry, network discovery, and graph-based analysis into a unified system.
+SAGE-CH (Security Assessment using Graph-based Evaluation for Cyber Hygiene) is a cross-platform cyber hygiene assessment framework that integrates endpoint telemetry, network discovery, vulnerability intelligence, and graph-based analysis into a unified system.
 
 The system operates in a strictly read-only mode and provides transparent, auditable, and structured visibility into enterprise cyber posture aligned with CIS Controls v8.1.
 
@@ -10,15 +10,14 @@ The system operates in a strictly read-only mode and provides transparent, audit
 
 SAGE-CH combines:
 
-- Endpoint-based data collection (Windows and Linux agents)
-- Network discovery for exposed services and unmanaged assets
-- A staged ingestion and normalization pipeline
-- A knowledge graph representing cyber entities and relationships
-- CIS Controls-aligned rule-based analysis
-- AI-assisted risk explanation and remediation generation
-- Persistent graph storage using Kuzu
-
-The result is a unified cyber knowledge graph that models hosts, software, services, findings, and their relationships.
+* Endpoint-based data collection (Windows and Linux agents)
+* Network discovery for exposed services and unmanaged assets
+* A staged ingestion and normalization pipeline
+* A knowledge graph representing cyber entities and relationships
+* CIS Controls-aligned rule-based analysis
+* CVE-based vulnerability correlation (NEW)
+* AI-assisted risk explanation and remediation generation
+* Persistent graph storage using Kuzu
 
 ---
 
@@ -26,252 +25,335 @@ The result is a unified cyber knowledge graph that models hosts, software, servi
 
 ### Endpoint Agents (Windows and Linux)
 
-- Host identification (hostname, OS, IP, MAC)
-- Software inventory collection
-- Update and patch status indicators
-- Security configuration indicators (expanding)
-- Read-only execution with audit logging
-- Structured JSON output
+* Host identification (hostname, OS, IP, MAC)
+* Software inventory collection
+* Update and patch status indicators
+* Security configuration indicators (expanding)
+* Read-only execution with audit logging
+* Structured JSON output
 
 ---
 
 ### Network Discovery
 
-- Allowlisted, non-intrusive scanning
-- Host discovery within authorized scope
-- TCP-based service probing
-- Detection of exposed services (ports and protocols)
-- Identification of unmanaged assets
+* Allowlisted, non-intrusive scanning
+* Host discovery within authorized scope
+* TCP-based service probing
+* Detection of exposed services (ports and protocols)
+* Identification of unmanaged assets
 
 ---
 
 ### Collector Pipeline
 
-- Staged batch ingestion system
-- Schema validation and error handling
-- Cross-platform normalization
-- Deduplication of hosts and software
-- Endpoint-to-network correlation
-- Consolidated dataset generation
+* Staged batch ingestion system
+* Schema validation and error handling
+* Cross-platform normalization
+* Deduplication of hosts and software
+* Endpoint-to-network correlation
+* Consolidated dataset generation
+
+---
+
+### CVE Correlation Engine (NEW)
+
+#### Pipeline Stages
+
+1. **Software Snapshot**
+2. **CVE Snapshot (NVD Integration)**
+3. **CVE Correlation**
+
+#### Filtering Logic
+
+* CVSS ≥ 7.0
+* Last 10 years
+* Top 3 CVEs per product
+
+#### Output
+
+* High-signal vulnerability findings
+* Host-level CVE mapping
+* Structured remediation + AI explanation
 
 ---
 
 ### Knowledge Graph
 
-Graph-based modeling of cyber entities:
-
 Node types:
-- Host (managed and discovered)
-- Software
-- Update Status
-- Service / Port
-- Finding
-- Control
-- Evidence
+
+* Host
+* Software
+* Service / Port
+* Finding
+* Control
+* Evidence
 
 Edge types:
-- HOST_HAS_SOFTWARE
-- HOST_HAS_UPDATE_STATUS
-- HOST_EXPOSES_SERVICE
-- HOST_HAS_FINDING
-- FINDING_MAPS_TO_CONTROL
-- FINDING_HAS_EVIDENCE
-- OBSERVATION_OF
+
+* HOST_HAS_SOFTWARE
+* HOST_EXPOSES_SERVICE
+* HOST_HAS_FINDING
+* FINDING_MAPS_TO_CONTROL
+* FINDING_HAS_EVIDENCE
 
 ---
 
 ### Graph Persistence (Kuzu)
 
-- Persistent graph database integration
-- Incremental graph updates across runs
-- Tracks:
-  - first_seen
-  - last_seen
-  - active vs inactive nodes
-- Supports graph inspection and querying
+* Persistent graph database integration
+* Tracks lifecycle (first_seen, last_seen)
+* Supports querying and inspection
 
 ---
 
 ### CIS-Based Analysis Engine
 
-- Rule-based evaluation aligned to CIS Controls v8.1
-- Structured findings generation
-- Evidence traceability
-- Severity classification
-- Host-level risk scoring
+* CIS Controls v8.1 alignment
+* Structured findings
+* Severity classification
+* Risk scoring
 
 ---
 
 ### AI-Assisted Analysis
 
-- Local LLM (Gemma2:9b)
-- Host-level risk explanations
-- Identification of key risk drivers
-- Prioritized remediation plans
-
-Safety layer:
-- Removes unsafe or destructive commands
-- Enforces read-only recommendations
-
----
-
-### Reporting
-
-- Machine-readable outputs (JSON)
-- Human-readable reports (Markdown)
-- AI-generated explanation and remediation outputs
+* Local LLM (Gemma2:9b)
+* Risk explanations
+* Remediation guidance
 
 ---
 
 ## How to Run
 
-### Run Windows Agent
+### 1. Endpoint Agents
+
+Windows:
+
+```bash
 python -m agents.windows.main
+```
 
-### Run Linux Agent
+Linux:
+
+```bash
 python3 -m agents.linux.main
+```
 
-### Run Network Discovery
+---
+
+### 2. Network Discovery
+
+```bash
 python tools/network_discovery.py
+```
 
+---
 
-Discovery output is written to:
-outputs/discovery/
+### 3. Move Reports
 
-### Move Endpoint Reports
-
-Copy endpoint reports into:
+```text
 collector/input/
+```
 
-### Run Collector
+---
+
+### 4. Collector
+
+```bash
 python -m collector.main
-
-### Inspect Graph (Kuzu)
-python -m collector.graph.kuzu_inspector
-
-## Output Files
-
-### Endpoint Agents
-
-agents/windows/output/
-agents/linux/output/
-
-Files:
-- endpoint_report_YYYYMMDD_HHMM.json
-- agent_audit_YYYYMMDD_HHMM.log
+```
 
 ---
 
-### Network Discovery
-outputs/discovery/
+### 5. CVE Pipeline
 
-Files:
-- network_discovery_YYYYMMDD_HHMM.json
+#### Software Snapshot
+
+```bash
+python tools/create_software_snapshot.py
+```
+
+#### CVE Snapshot
+
+```bash
+python tools/update_cve_snapshot.py
+```
+
+#### CVE Findings
+
+```bash
+python tools/correlate_cves_to_findings.py
+```
 
 ---
 
-### Collector Outputs
+## Output Structure
+
+```
 collector/output/
-
-
-Files:
-- consolidated_dataset_batch_*.json
-- findings_dataset_batch_*.json
-- assessment_summary_batch_*.json
-- scoreboard_report_batch_*.md
-- ai_host_explanations_batch_*.json
-- ai_remediation_plan_batch_*.md
-- collector_audit.log
-
----
-
-### Graph Storage
-collector/output/graph/
-
-
-Files:
-- sage_ch_kuzu.db
+├── software_snapshot/
+├── cve_snapshot/
+├── cve_findings/
+├── graph/
+```
 
 ---
 
 ## System Pipeline
 
-
-Endpoint Agents + Network Discovery
+```
+Endpoint + Network
 ↓
-Ingestion
+Collector
 ↓
-Validation
+Software Snapshot
 ↓
-Normalization
+CVE Snapshot
 ↓
-Correlation
+CVE Correlation
 ↓
-Graph Builder
+Findings
 ↓
-Kuzu Persistence
-↓
-CIS Rule Engine
+Graph
 ↓
 AI Layer
 ↓
-Reporting
-
-
----
-
-## Design Principles
-
-- Strictly read-only execution
-- Least-privilege data collection
-- Allowlisted network discovery
-- Transparent and auditable processing
-- Separation of data collection, analysis, and AI layers
-- Batch-based reproducibility
-
----
-
-## Constraints
-
-- No intrusive scanning
-- No system modification
-- Periodic execution (not real-time monitoring)
-- Limited by available permissions and visibility
+Reports
+```
 
 ---
 
 ## Current Capabilities
 
-- Cross-platform endpoint collection (Windows and Linux)
-- Network discovery and service exposure mapping
-- Unified knowledge graph construction
-- CIS-aligned findings with evidence traceability
-- AI-generated explanations and remediation plans
-- Persistent graph storage with Kuzu
+* Endpoint + network visibility
+* Knowledge graph construction
+* CIS findings
+* CVE vulnerability detection
+* AI remediation
+* Persistent graph tracking
+
+---
+
+## Limitations
+
+* Not version-aware yet
+* Keyword-based CVE matching
+* Possible false positives
 
 ---
 
 ## Future Work
 
-- CVE and CPE integration
-- UCO or STIX alignment
-- Attack path analysis using graph traversal
-- Historical trend analysis across batches
-- Distributed and large-scale deployment
+* Version-aware CVE matching (CPE)
+* KEV / exploitability integration
+* Risk scoring model
+* UI integration for CVE pipeline
+* Full pipeline orchestration
 
 ---
 
 ## Notes
 
-- Agents must be run before the collector
-- Discovery must be executed separately
-- Collector expects endpoint reports in `collector/input/`
-- Graph persists across runs unless manually reset
+* CVE pipeline runs separately
+* Avoid frequent NVD calls (rate limiting)
+* Designed for controlled execution
 
 ---
 
-## License and Usage
+## License
 
-This project is intended for academic and controlled environments.
+Academic / controlled use only.
 
-Ensure proper authorization before running on any network or system.
+---
+
+## Fresh Windows PC Quick Start
+
+Use this path for a new machine, demo machine, or grader environment.
+
+### Prerequisites
+
+* Windows 10/11
+* Python 3.11 or newer on PATH
+* PowerShell
+* Optional for AI enrichment: Ollama with `gemma2:9b`
+
+### 1. Set up the project
+
+Open PowerShell in the project folder and run:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File scripts\setup_windows.ps1
+```
+
+This creates `.venv`, installs `requirements.txt`, and runs a preflight check.
+
+### 2. Start the Streamlit console
+
+```powershell
+.\scripts\run_gui.ps1
+```
+
+Or double-click:
+
+```text
+START_SAGE_CH.bat
+```
+
+### 3. Verify health
+
+Open the Streamlit sidebar:
+
+```text
+Operations -> Pipeline Health
+```
+
+Confirm:
+
+* Kuzu is available
+* Latest consolidated dataset is found
+* Graph node counts are non-zero
+* No unexpected batches are stuck in processing
+
+### 4. Rebuild Kuzu if needed
+
+If the Graph page shows an empty Kuzu database, use:
+
+```text
+Operations -> Actions -> Rebuild Kuzu
+```
+
+Or run:
+
+```powershell
+python tools\rebuild_kuzu_from_consolidated.py
+```
+
+### 5. Collector and AI workflow
+
+Run the core collector without AI:
+
+```powershell
+.\scripts\run_collector.ps1
+```
+
+Run AI enrichment after the core graph is available:
+
+```powershell
+python tools\run_ai_enrichment.py
+```
+
+The Streamlit Actions page also exposes both operations.
+
+### Troubleshooting
+
+Run:
+
+```powershell
+.\.venv\Scripts\python.exe tools\preflight_check.py
+```
+
+If dependencies are missing, rerun:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File scripts\setup_windows.ps1
+```

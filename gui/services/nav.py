@@ -17,13 +17,15 @@ def render_sidebar() -> None:
             st.image(str(logo_path), use_container_width=True)
 
         st.markdown("## SAGE-CH")
-        st.caption("Security Console")
-
         st.page_link("app.py", label="Home", icon="🛡️")
         st.page_link("pages/1_Dashboard.py", label="Dashboard", icon="📊")
         st.page_link("pages/2_Hosts.py", label="Hosts", icon="💻")
         st.page_link("pages/3_Findings.py", label="Findings", icon="🚨")
         st.page_link("pages/4_Graph.py", label="Graph", icon="🕸️")
         st.page_link("pages/5_Batches.py", label="Batches", icon="🗂️")
-        st.page_link("pages/6_Settings.py", label="Settings", icon="⚙️")
+
+        st.divider()
+        st.caption("Operations")
         st.page_link("pages/7_Actions.py", label="Actions", icon="▶️")
+        st.page_link("pages/8_Pipeline_Health.py", label="Pipeline Health", icon="🩺")
+        st.page_link("pages/6_Settings.py", label="Settings", icon="⚙️")

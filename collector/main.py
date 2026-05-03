@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import argparse
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Dict, List
@@ -51,7 +52,44 @@ def write_text_file(path: str, content: str) -> None:
         file_handle.write(content)
 
 
-def process_reports(report_paths: List[str], batch_id: str, logger: AuditLogger) -> Dict[str, Any]:
+def _persist_graph(
+    mapped_graph: Dict[str, Any],
+    batch_id: str,
+    phase: str,
+    logger: AuditLogger,
+) -> Dict[str, Any]:
+    try:
+        logger.info(f"Persisting {phase} mapped graph to Kuzu: {KUZU_DB_PATH}")
+        graph_persistence = persist_mapped_graph(
+            mapped_graph=mapped_graph,
+            db_path=KUZU_DB_PATH,
+            run_id=batch_id,
+            observed_at=datetime.now(timezone.utc).isoformat(),
+        )
+
+        logger.info(
+            f"Kuzu {phase} persistence complete. "
+            f"Nodes={graph_persistence.get('node_count', 0)}, "
+            f"Edges={graph_persistence.get('edge_count', 0)}, "
+            f"MissingNodes={graph_persistence.get('nodes_marked_missing', 0)}, "
+            f"InactiveEdges={graph_persistence.get('edges_marked_inactive', 0)}"
+        )
+        return {
+            "status": "complete",
+            "result": graph_persistence,
+        }
+    except Exception as exc:
+        logger.info(f"Kuzu {phase} persistence failed: {exc}")
+        return {
+            "status": "failed",
+            "result": {
+                "ok": False,
+                "error": str(exc),
+            },
+        }
+
+
+def process_reports(report_paths: List[str], batch_id: str, logger: AuditLogger, run_ai: bool = False) -> Dict[str, Any]:
     logger.info(f"Processing staged batch {batch_id} with {len(report_paths)} report file(s).")
 
     loaded_reports = load_reports_from_paths(report_paths)
@@ -139,23 +177,6 @@ def process_reports(report_paths: List[str], batch_id: str, logger: AuditLogger)
                 logger.info(f"Normalized discovered hosts: {len(normalized_discovered_hosts)}")
                 logger.info(f"Correlation results generated: {len(correlation_results)}")
 
-    logger.info("Building base graph.")
-    graph = build_graph(
-        normalized_hosts,
-        normalized_discovered_hosts,
-        correlation_results,
-        findings=[],
-        ai_result=None,
-    )
-
-    logger.info("Applying graph mapper to base graph.")
-    mapped_graph = align_graph(graph)
-    logger.info(
-        f"Base graph mapping complete. "
-        f"Mapped nodes: {mapped_graph['summary']['node_count']}, "
-        f"Mapped edges: {mapped_graph['summary']['edge_count']}"
-    )
-
     logger.info("Building consolidated dataset.")
     consolidated = {
         "project": "SAGE-CH",
@@ -173,11 +194,17 @@ def process_reports(report_paths: List[str], batch_id: str, logger: AuditLogger)
         "discovered_hosts": discovered_hosts,
         "normalized_discovered_hosts": normalized_discovered_hosts,
         "correlation_results": correlation_results,
-        "graph": graph,
-        "graph_mapping_status": "complete",
-        "mapped_graph": mapped_graph,
+        "graph": {},
+        "graph_mapping_status": "not_started",
+        "mapped_graph": {},
         "graph_persistence_status": "not_started",
         "graph_persistence": None,
+        "core_graph_persistence_status": "not_started",
+        "core_graph_persistence": None,
+        "ai_enrichment_status": "not_started",
+        "ai_phase_1": None,
+        "ai_graph_persistence_status": "not_started",
+        "ai_graph_persistence": None,
     }
 
     logger.info("Running Phase 5 analysis.")
@@ -193,40 +220,34 @@ def process_reports(report_paths: List[str], batch_id: str, logger: AuditLogger)
     summary["batch_id"] = batch_id
     summary["timestamp_utc"] = datetime.now(timezone.utc).isoformat()
 
-    ai_result = run_ai_phase_1(
-        batch_id=batch_id,
-        consolidated=consolidated,
-        findings=findings,
-        summary=summary,
-        logger=logger,
-    )
-
-    logger.info("Rebuilding graph with findings and AI outputs.")
+    logger.info("Building core graph with findings.")
     graph = build_graph(
         normalized_hosts,
         normalized_discovered_hosts,
         correlation_results,
         findings=findings,
-        ai_result=ai_result,
+        ai_result=None,
     )
 
-    logger.info("Applying graph mapper to enriched graph.")
+    logger.info("Applying graph mapper to core graph.")
     mapped_graph = align_graph(graph)
     logger.info(
-        f"Enriched graph mapping complete. "
+        f"Core graph mapping complete. "
         f"Mapped nodes: {mapped_graph['summary']['node_count']}, "
         f"Mapped edges: {mapped_graph['summary']['edge_count']}"
     )
 
     consolidated["graph"] = graph
     consolidated["mapped_graph"] = mapped_graph
-    consolidated["ai_phase_1"] = ai_result
+    consolidated["graph_mapping_status"] = "complete"
+    consolidated["status"] = "core_complete"
 
     scoreboard_markdown = build_scoreboard_markdown(consolidated, findings, summary)
     scoreboard_markdown = (
         f"# Batch\n"
         f"- Batch ID: {batch_id}\n"
-        f"- AI Phase 1 OK: {ai_result['ok']}\n\n"
+        f"- Core Graph Persistence: pending\n"
+        f"- AI Enrichment: {'requested' if run_ai else 'not requested'}\n\n"
         f"{scoreboard_markdown}"
     )
 
@@ -246,35 +267,80 @@ def process_reports(report_paths: List[str], batch_id: str, logger: AuditLogger)
 
     logger.info("Primary collector outputs written successfully.")
 
-    graph_persistence = None
-    try:
-        logger.info(f"Persisting mapped graph to Kuzu: {KUZU_DB_PATH}")
-        graph_persistence = persist_mapped_graph(
-            mapped_graph=mapped_graph,
-            db_path=KUZU_DB_PATH,
-            run_id=batch_id,
-            observed_at=datetime.now(timezone.utc).isoformat(),
-        )
-        consolidated["graph_persistence_status"] = "complete"
-        consolidated["graph_persistence"] = graph_persistence
-
-        logger.info(
-            f"Kuzu persistence complete. "
-            f"Nodes={graph_persistence.get('node_count', 0)}, "
-            f"Edges={graph_persistence.get('edge_count', 0)}, "
-            f"MissingNodes={graph_persistence.get('nodes_marked_missing', 0)}, "
-            f"InactiveEdges={graph_persistence.get('edges_marked_inactive', 0)}"
-        )
-    except Exception as exc:
-        consolidated["graph_persistence_status"] = "failed"
-        consolidated["graph_persistence"] = {
-            "ok": False,
-            "error": str(exc),
-        }
-        logger.info(f"Kuzu persistence failed: {exc}")
+    persistence_result = _persist_graph(mapped_graph, batch_id, "core", logger)
+    consolidated["graph_persistence_status"] = persistence_result["status"]
+    consolidated["graph_persistence"] = persistence_result["result"]
+    consolidated["core_graph_persistence_status"] = persistence_result["status"]
+    consolidated["core_graph_persistence"] = persistence_result["result"]
 
     logger.info(f"Re-writing consolidated dataset to include graph persistence status: {outputs['consolidated']}")
     write_json(outputs["consolidated"], consolidated)
+
+    if run_ai:
+        consolidated["ai_enrichment_status"] = "running"
+        write_json(outputs["consolidated"], consolidated)
+
+        try:
+            ai_result = run_ai_phase_1(
+                batch_id=batch_id,
+                consolidated=consolidated,
+                findings=findings,
+                summary=summary,
+                logger=logger,
+            )
+        except Exception as exc:
+            logger.info(f"AI enrichment failed: {exc}")
+            consolidated["status"] = "core_complete"
+            consolidated["ai_enrichment_status"] = "failed"
+            consolidated["ai_phase_1"] = {
+                "ok": False,
+                "error": str(exc),
+                "batch_id": batch_id,
+            }
+            write_json(outputs["consolidated"], consolidated)
+            logger.info("Collector execution complete with failed AI enrichment.")
+            return {
+                "success": [r["path"] for r in valid_reports],
+                "failed": [
+                    {
+                        "path": r["path"],
+                        "reason": "; ".join(r["errors"]) if r["errors"] else "validation_failed"
+                    }
+                    for r in invalid_reports
+                ],
+            }
+
+        logger.info("Rebuilding graph with AI outputs.")
+        graph = build_graph(
+            normalized_hosts,
+            normalized_discovered_hosts,
+            correlation_results,
+            findings=findings,
+            ai_result=ai_result,
+        )
+
+        logger.info("Applying graph mapper to AI-enriched graph.")
+        mapped_graph = align_graph(graph)
+        logger.info(
+            f"AI-enriched graph mapping complete. "
+            f"Mapped nodes: {mapped_graph['summary']['node_count']}, "
+            f"Mapped edges: {mapped_graph['summary']['edge_count']}"
+        )
+
+        ai_persistence_result = _persist_graph(mapped_graph, batch_id, "ai_enriched", logger)
+        consolidated["status"] = "complete"
+        consolidated["graph"] = graph
+        consolidated["mapped_graph"] = mapped_graph
+        consolidated["ai_phase_1"] = ai_result
+        consolidated["ai_enrichment_status"] = "complete" if ai_result.get("ok") else "failed"
+        consolidated["ai_graph_persistence_status"] = ai_persistence_result["status"]
+        consolidated["ai_graph_persistence"] = ai_persistence_result["result"]
+        consolidated["graph_persistence_status"] = ai_persistence_result["status"]
+        consolidated["graph_persistence"] = ai_persistence_result["result"]
+        write_json(outputs["consolidated"], consolidated)
+    else:
+        consolidated["ai_enrichment_status"] = "not_requested"
+        write_json(outputs["consolidated"], consolidated)
 
     logger.info("Collector execution complete.")
 
@@ -294,6 +360,14 @@ def process_reports(report_paths: List[str], batch_id: str, logger: AuditLogger)
 
 
 def main() -> int:
+    parser = argparse.ArgumentParser(description="Run the SAGE-CH collector.")
+    parser.add_argument(
+        "--with-ai",
+        action="store_true",
+        help="Run AI enrichment after the core collector graph has been written and persisted.",
+    )
+    args = parser.parse_args()
+
     logger = AuditLogger(LOG_PATH)
     logger.info("SAGE-CH collector started.")
 
@@ -316,6 +390,7 @@ def main() -> int:
             [str(path) for path in report_paths],
             batch.batch_id,
             logger,
+            run_ai=args.with_ai,
         )
     )
 
