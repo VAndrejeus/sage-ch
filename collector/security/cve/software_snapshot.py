@@ -11,6 +11,7 @@ REPO_ROOT = Path(__file__).resolve().parents[3]
 INCOMING_DIR = REPO_ROOT / "collector" / "input" / "incoming"
 SOFTWARE_SNAPSHOT_DIR = REPO_ROOT / "collector" / "output" / "software_snapshot"
 SOFTWARE_SNAPSHOT_PATH = SOFTWARE_SNAPSHOT_DIR / "software_snapshot_latest.json"
+COLLECTOR_OUTPUT_DIR = REPO_ROOT / "collector" / "output"
 
 
 def utc_now_iso() -> str:
@@ -89,58 +90,88 @@ def extract_report_software(report: dict[str, Any], source_file: str) -> list[di
     return software_rows
 
 
-def create_software_snapshot(
-    input_dir: Path = INCOMING_DIR,
-    output_path: Path = SOFTWARE_SNAPSHOT_PATH,
-) -> dict[str, Any]:
-    output_path.parent.mkdir(parents=True, exist_ok=True)
+def find_latest_consolidated_dataset(output_dir: Path = COLLECTOR_OUTPUT_DIR) -> Path | None:
+    candidates = sorted(
+        output_dir.glob("consolidated_dataset_batch_*.json"),
+        key=lambda path: path.stat().st_mtime,
+        reverse=True,
+    )
+    return candidates[0] if candidates else None
 
-    if not input_dir.exists():
-        return {
-            "ok": False,
-            "message": f"Input directory not found: {input_dir}",
-            "input_dir": str(input_dir),
-            "output_path": str(output_path),
-        }
 
-    report_files = sorted(input_dir.glob("*.json"))
-    grouped: dict[str, dict[str, Any]] = {}
-    loaded_reports = 0
-    skipped_reports = 0
+def extract_consolidated_software(dataset: dict[str, Any], source_file: str) -> tuple[list[dict[str, Any]], int]:
+    hosts = dataset.get("hosts", [])
 
-    for path in report_files:
-        report = load_json(path)
+    if not isinstance(hosts, list):
+        return [], 0
 
-        if not report:
-            skipped_reports += 1
+    software_rows = []
+    loaded_hosts = 0
+
+    for host in hosts:
+        if not isinstance(host, dict):
             continue
 
-        loaded_reports += 1
-        software_rows = extract_report_software(report, path.name)
+        loaded_hosts += 1
+        hostname = str(host.get("hostname") or host.get("host_id") or "unknown")
+        items = host.get("software", [])
 
-        for row in software_rows:
-            key = row["normalized_name"]
+        if not isinstance(items, list):
+            continue
 
-            if key not in grouped:
-                grouped[key] = {
-                    "normalized_name": key,
-                    "raw_names": set(),
-                    "versions_seen": set(),
-                    "architectures_seen": set(),
-                    "hosts_seen": set(),
-                    "source_files": set(),
+        for item in items:
+            if not isinstance(item, dict):
+                continue
+
+            raw_name = str(item.get("name", "") or "").strip()
+            if not raw_name:
+                continue
+
+            software_rows.append(
+                {
+                    "raw_name": raw_name,
+                    "normalized_name": normalize_software_name(raw_name),
+                    "version": str(item.get("version", "") or "").strip(),
+                    "arch": str(item.get("arch", "") or "").strip(),
+                    "hostname": hostname,
+                    "source_file": source_file,
                 }
+            )
 
-            grouped[key]["raw_names"].add(row["raw_name"])
+    return software_rows, loaded_hosts
 
-            if row["version"]:
-                grouped[key]["versions_seen"].add(row["version"])
 
-            if row["arch"]:
-                grouped[key]["architectures_seen"].add(row["arch"])
+def build_snapshot_from_rows(
+    software_rows: list[dict[str, Any]],
+    source: str,
+    source_report_count: int,
+    skipped_report_count: int = 0,
+) -> dict[str, Any]:
+    grouped: dict[str, dict[str, Any]] = {}
 
-            grouped[key]["hosts_seen"].add(row["hostname"])
-            grouped[key]["source_files"].add(row["source_file"])
+    for row in software_rows:
+        key = row["normalized_name"]
+
+        if key not in grouped:
+            grouped[key] = {
+                "normalized_name": key,
+                "raw_names": set(),
+                "versions_seen": set(),
+                "architectures_seen": set(),
+                "hosts_seen": set(),
+                "source_files": set(),
+            }
+
+        grouped[key]["raw_names"].add(row["raw_name"])
+
+        if row["version"]:
+            grouped[key]["versions_seen"].add(row["version"])
+
+        if row["arch"]:
+            grouped[key]["architectures_seen"].add(row["arch"])
+
+        grouped[key]["hosts_seen"].add(row["hostname"])
+        grouped[key]["source_files"].add(row["source_file"])
 
     software = []
 
@@ -158,14 +189,99 @@ def create_software_snapshot(
 
     software = sorted(software, key=lambda item: item["normalized_name"])
 
-    snapshot = {
+    return {
         "generated_at": utc_now_iso(),
-        "source": str(input_dir),
-        "source_report_count": loaded_reports,
-        "skipped_report_count": skipped_reports,
+        "source": source,
+        "source_report_count": source_report_count,
+        "skipped_report_count": skipped_report_count,
         "software_count": len(software),
         "software": software,
     }
+
+
+def create_software_snapshot_from_consolidated(
+    consolidated_path: Path | None = None,
+    output_path: Path = SOFTWARE_SNAPSHOT_PATH,
+) -> dict[str, Any]:
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+
+    source_path = consolidated_path or find_latest_consolidated_dataset()
+
+    if source_path is None:
+        return {
+            "ok": False,
+            "message": "No consolidated dataset found.",
+            "consolidated_path": None,
+            "output_path": str(output_path),
+        }
+
+    dataset = load_json(source_path)
+
+    if not dataset:
+        return {
+            "ok": False,
+            "message": f"Unable to load consolidated dataset: {source_path}",
+            "consolidated_path": str(source_path),
+            "output_path": str(output_path),
+        }
+
+    software_rows, loaded_hosts = extract_consolidated_software(dataset, source_path.name)
+    snapshot = build_snapshot_from_rows(
+        software_rows=software_rows,
+        source=str(source_path),
+        source_report_count=loaded_hosts,
+    )
+
+    with output_path.open("w", encoding="utf-8") as file:
+        json.dump(snapshot, file, indent=2)
+
+    return {
+        "ok": True,
+        "message": f"Created software snapshot with {snapshot['software_count']} unique software entries from {loaded_hosts} host(s).",
+        "consolidated_path": str(source_path),
+        "output_path": str(output_path),
+        "generated_at": snapshot["generated_at"],
+        "source_report_count": snapshot["source_report_count"],
+        "skipped_report_count": snapshot["skipped_report_count"],
+        "software_count": snapshot["software_count"],
+    }
+
+
+def create_software_snapshot(
+    input_dir: Path = INCOMING_DIR,
+    output_path: Path = SOFTWARE_SNAPSHOT_PATH,
+) -> dict[str, Any]:
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+
+    if not input_dir.exists():
+        return {
+            "ok": False,
+            "message": f"Input directory not found: {input_dir}",
+            "input_dir": str(input_dir),
+            "output_path": str(output_path),
+        }
+
+    report_files = sorted(input_dir.glob("*.json"))
+    loaded_reports = 0
+    skipped_reports = 0
+    software_rows = []
+
+    for path in report_files:
+        report = load_json(path)
+
+        if not report:
+            skipped_reports += 1
+            continue
+
+        loaded_reports += 1
+        software_rows.extend(extract_report_software(report, path.name))
+
+    snapshot = build_snapshot_from_rows(
+        software_rows=software_rows,
+        source=str(input_dir),
+        source_report_count=loaded_reports,
+        skipped_report_count=skipped_reports,
+    )
 
     with output_path.open("w", encoding="utf-8") as file:
         json.dump(snapshot, file, indent=2)

@@ -299,8 +299,18 @@ def load_latest_findings_df() -> tuple[pd.DataFrame, Path | None]:
 
 def load_cve_summary() -> tuple[dict, Path | None]:
     payload, path = load_latest_cve_findings_payload()
+    cve_snapshot = _safe_read_json(get_latest_cve_snapshot_path() or Path())
+    software_snapshot = _safe_read_json(get_latest_software_snapshot_path() or Path())
+
+    total_software = 0
+    if isinstance(cve_snapshot, dict):
+        total_software = int(cve_snapshot.get("total_software", 0) or 0)
+    if not total_software and isinstance(software_snapshot, dict):
+        total_software = int(software_snapshot.get("software_count", 0) or 0)
+
     if not payload:
         return {
+            "total_software": total_software,
             "total_findings": 0,
             "products_with_findings": 0,
             "total_cves_after_filter": 0,
@@ -309,6 +319,7 @@ def load_cve_summary() -> tuple[dict, Path | None]:
         }, path
 
     return {
+        "total_software": total_software,
         "total_findings": payload.get("total_findings", 0),
         "products_with_findings": payload.get("products_with_findings", 0),
         "total_cves_after_filter": payload.get("total_cves_after_filter", 0),

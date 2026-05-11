@@ -17,7 +17,7 @@ from services.report_service import build_host_pdf_report
 render_sidebar()
 
 st.title("Hosts")
-st.caption("Host-level security posture, vulnerability findings, software inventory, AI explanation, and remediation guidance.")
+st.caption("Host-level security posture, CIS findings, CVE findings, software inventory, AI explanation, and remediation guidance.")
 
 hosts_df, hosts_path = load_hosts_df_from_consolidated()
 findings_df, findings_path = load_latest_findings_df()
@@ -65,13 +65,19 @@ host_vulnerabilities = pd.DataFrame()
 if not host_findings.empty and "finding_type" in host_findings.columns:
     host_vulnerabilities = host_findings[host_findings["finding_type"].astype(str) == "Vulnerability"].copy()
 
+host_cis_findings = (
+    host_findings[host_findings["finding_type"].astype(str) != "Vulnerability"].copy()
+    if not host_findings.empty and "finding_type" in host_findings.columns
+    else host_findings.copy()
+)
+
 ai_data = load_ai_for_host(selected_host)
 explanation = ai_data.get("explanation")
 remediation = ai_data.get("remediation", [])
 
 severity_counts = {}
-if not host_findings.empty and "severity" in host_findings.columns:
-    severity_counts = host_findings["severity"].fillna("").astype(str).str.lower().value_counts().to_dict()
+if not host_cis_findings.empty and "severity" in host_cis_findings.columns:
+    severity_counts = host_cis_findings["severity"].fillna("").astype(str).str.lower().value_counts().to_dict()
 
 
 def sort_by_severity(df: pd.DataFrame) -> pd.DataFrame:
@@ -117,9 +123,9 @@ with summary_box:
     c1.metric("Hostname", host_record.get("hostname", ""))
     c2.metric("IP", host_record.get("ip", "") or "N/A")
     c3.metric("Software", len(software_items))
-    c4.metric("Findings", len(host_findings))
+    c4.metric("CIS Findings", len(host_cis_findings))
     c5.metric("CVE Findings", len(host_vulnerabilities))
-    c6.metric("Critical", severity_counts.get("critical", 0))
+    c6.metric("CIS Critical", severity_counts.get("critical", 0))
 
 export_box = st.container(border=True)
 with export_box:
@@ -127,7 +133,7 @@ with export_box:
 
     with left:
         st.subheader("Export Host Report")
-        st.caption("Generate a host-level PDF with system details, findings, AI explanation, and remediation guidance.")
+        st.caption("Generate a host-level PDF with system details, CIS findings, CVE findings, AI explanation, and remediation guidance.")
 
     with right:
         try:
@@ -188,12 +194,12 @@ with main_left:
 with main_right:
     findings_box = st.container(border=True)
     with findings_box:
-        st.subheader("Findings")
+        st.subheader("CIS Findings")
 
-        if host_findings.empty:
-            st.success("No findings found for this host.")
+        if host_cis_findings.empty:
+            st.success("No CIS findings found for this host.")
         else:
-            display_df = sort_by_severity(host_findings)
+            display_df = sort_by_severity(host_cis_findings)
 
             rename_map = {
                 "cis_controls": "CIS Control",

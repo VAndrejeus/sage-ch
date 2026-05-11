@@ -125,6 +125,28 @@ Edge types:
 
 ## How to Run
 
+### Portable USB Deployment
+
+To build a thumb-drive friendly package for Windows systems:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File scripts\build_portable_windows.ps1 -IncludeOutputs
+```
+
+The generated package is written to:
+
+```text
+dist\sage-ch-portable\
+```
+
+It contains:
+
+* `SAGE-CH-Collector-Windows` - Collector, GUI, tools, documentation, and embedded Python runtime.
+* `SAGE-CH-Agent-Windows` - Windows endpoint agent and embedded Python runtime.
+* `SAGE-CH-Agent-Linux` - Linux endpoint agent source package and launcher script.
+
+On Windows targets, use the `.bat` launchers in each package. Python does not need to be installed separately because the Windows packages include an embedded Python runtime.
+
 ### 1. Endpoint Agents
 
 Windows:
@@ -287,10 +309,24 @@ powershell -ExecutionPolicy Bypass -File scripts\setup_windows.ps1
 
 This creates `.venv`, installs `requirements.txt`, and runs a preflight check.
 
+If Windows blocks any project `.ps1` script because of the local PowerShell execution policy, preface the script with:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File
+```
+
+For example, use `powershell -ExecutionPolicy Bypass -File .\scripts\run_gui.ps1` instead of running `.\scripts\run_gui.ps1` directly.
+
 ### 2. Start the Streamlit console
 
 ```powershell
 .\scripts\run_gui.ps1
+```
+
+If script execution is blocked, run:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File .\scripts\run_gui.ps1
 ```
 
 Or double-click:
@@ -334,6 +370,12 @@ Run the core collector without AI:
 
 ```powershell
 .\scripts\run_collector.ps1
+```
+
+If script execution is blocked, run:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File .\scripts\run_collector.ps1
 ```
 
 Run AI enrichment after the core graph is available:

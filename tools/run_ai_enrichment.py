@@ -1,9 +1,15 @@
 from __future__ import annotations
 
 import json
+import sys
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
+
+
+REPO_ROOT = Path(__file__).resolve().parents[1]
+if str(REPO_ROOT) not in sys.path:
+    sys.path.insert(0, str(REPO_ROOT))
 
 from agents.common.utils.audit_logger import AuditLogger
 from agents.common.utils.json_writer import write_json
@@ -13,8 +19,6 @@ from collector.config import KUZU_DB_PATH
 from collector.graph.graph_builder import build_graph
 from collector.graph.graph_persistence import persist_mapped_graph
 
-
-REPO_ROOT = Path(__file__).resolve().parents[1]
 OUTPUT_DIR = REPO_ROOT / "collector" / "output"
 LOG_PATH = "collector/output/collector_audit.log"
 

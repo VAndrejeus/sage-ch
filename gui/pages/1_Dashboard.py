@@ -73,8 +73,14 @@ def status_label(value: object, good_values: set[str] | None = None) -> str:
 
 
 severity_counts = metrics["severity_counts"]
-critical_count = severity_counts.get("critical", 0)
-high_count = severity_counts.get("high", 0)
+cis_severity_counts = {"critical": 0, "high": 0, "medium": 0, "low": 0}
+if not configuration_df.empty and "severity" in configuration_df.columns:
+    cis_severity = configuration_df["severity"].fillna("").astype(str).str.lower()
+    for key in cis_severity_counts:
+        cis_severity_counts[key] = int((cis_severity == key).sum())
+
+critical_count = cis_severity_counts.get("critical", 0)
+high_count = cis_severity_counts.get("high", 0)
 affected_hosts = (
     findings_df["hostname"].nunique()
     if not findings_df.empty and "hostname" in findings_df.columns
@@ -85,16 +91,16 @@ edge_total = sum(graph_counts.get("edge_counts", {}).values()) if graph_counts.g
 
 if critical_count:
     posture = "Critical attention required"
-    posture_body = f"{critical_count} critical findings are present. Prioritize affected hosts with repeated high-impact findings."
+    posture_body = f"{critical_count} critical CIS-mapped findings are present. Prioritize affected hosts with repeated high-impact findings."
 elif high_count:
     posture = "High-priority review"
-    posture_body = f"{high_count} high findings are present. Review host exposure, patch status, and secure configuration issues."
-elif metrics["total_findings"]:
+    posture_body = f"{high_count} high CIS-mapped findings are present. Review host exposure, patch status, and secure configuration issues."
+elif len(configuration_df):
     posture = "Findings require review"
-    posture_body = "No critical or high findings are loaded, but medium and low findings should be triaged."
+    posture_body = "No critical or high CIS-mapped findings are loaded, but medium and low findings should be triaged."
 else:
     posture = "No findings loaded"
-    posture_body = "Run the collector to load assessment findings."
+    posture_body = "Run the collector to load CIS-mapped assessment findings."
 
 st.title("Security Posture")
 st.caption("Latest SAGE-CH assessment summary for cyber hygiene, vulnerability exposure, and graph health.")
@@ -115,9 +121,9 @@ with kpi_box:
     k1, k2, k3, k4, k5, k6 = st.columns(6)
     k1.metric("Hosts", metrics["total_hosts"])
     k2.metric("Affected Hosts", affected_hosts)
-    k3.metric("Findings", metrics["total_findings"])
-    k4.metric("Critical", critical_count)
-    k5.metric("High", high_count)
+    k3.metric("CIS Findings", len(configuration_df))
+    k4.metric("CIS Critical", critical_count)
+    k5.metric("CIS High", high_count)
     k6.metric("CVE Findings", len(vulnerability_df))
 
 left_col, right_col = st.columns([1.25, 1])
@@ -125,12 +131,12 @@ left_col, right_col = st.columns([1.25, 1])
 with left_col:
     risk_box = st.container(border=True)
     with risk_box:
-        st.subheader("Highest-Risk Hosts")
-        if findings_df.empty or "hostname" not in findings_df.columns:
-            st.info("No host finding data is available.")
+        st.subheader("Highest-Risk CIS Hosts")
+        if configuration_df.empty or "hostname" not in configuration_df.columns:
+            st.info("No CIS-mapped host finding data is available.")
         else:
             weights = {"critical": 10, "high": 6, "medium": 3, "low": 1}
-            host_risk = findings_df.copy()
+            host_risk = configuration_df.copy()
             host_risk["severity_weight"] = (
                 host_risk["severity"].fillna("").astype(str).str.lower().map(weights).fillna(0)
                 if "severity" in host_risk.columns
@@ -153,7 +159,7 @@ with left_col:
                     columns={
                         "hostname": "Host",
                         "risk_score": "Risk Score",
-                        "findings": "Findings",
+                        "findings": "CIS Findings",
                         "critical": "Critical",
                         "high": "High",
                     }
@@ -179,11 +185,11 @@ with right_col:
     with cve_box:
         st.subheader("Vulnerability Intelligence")
         c1, c2 = st.columns(2)
-        c1.metric("Products With CVEs", cve_summary.get("products_with_findings", 0))
-        c2.metric("Filtered CVEs", cve_summary.get("total_cves_after_filter", 0))
+        c1.metric("Software Entries", cve_summary.get("total_software", 0))
+        c2.metric("CVE Findings", cve_summary.get("total_findings", 0))
         c3, c4 = st.columns(2)
-        c3.metric("Min CVSS", cve_summary.get("min_cvss_score", "N/A"))
-        c4.metric("Max Age", f"{cve_summary.get('max_cve_age_years', 'N/A')} years")
+        c3.metric("Products With CVEs", cve_summary.get("products_with_findings", 0))
+        c4.metric("Filtered CVEs", cve_summary.get("total_cves_after_filter", 0))
 
 middle_left, middle_right = st.columns([1, 1])
 
@@ -214,24 +220,24 @@ with middle_left:
 with middle_right:
     severity_box = st.container(border=True)
     with severity_box:
-        st.subheader("Severity Distribution")
+        st.subheader("CIS Severity Distribution")
         sev_df = pd.DataFrame(
             [
                 {"Severity": "Critical", "Count": critical_count},
                 {"Severity": "High", "Count": high_count},
-                {"Severity": "Medium", "Count": severity_counts.get("medium", 0)},
-                {"Severity": "Low", "Count": severity_counts.get("low", 0)},
+                {"Severity": "Medium", "Count": cis_severity_counts.get("medium", 0)},
+                {"Severity": "Low", "Count": cis_severity_counts.get("low", 0)},
             ]
         )
         st.bar_chart(sev_df.set_index("Severity"), height=300)
 
 findings_box = st.container(border=True)
 with findings_box:
-    st.subheader("Priority Findings")
-    if findings_df.empty:
-        st.info("No findings dataset available.")
+    st.subheader("Priority CIS Findings")
+    if configuration_df.empty:
+        st.info("No CIS-mapped findings dataset available.")
     else:
-        display_df = severity_sorted(findings_df)
+        display_df = severity_sorted(configuration_df)
         preview_cols = [
             col
             for col in ["hostname", "severity", "finding_type", "cis_controls", "software_name", "cve_id", "title", "status"]
@@ -256,7 +262,7 @@ with findings_box:
 
 with st.expander("Artifact Sources"):
     st.markdown(f"**Hosts dataset:** `{hosts_path if hosts_path else 'Not found'}`")
-    st.markdown(f"**Findings dataset:** `{findings_path if findings_path else 'Not found'}`")
+    st.markdown(f"**CIS findings dataset:** `{findings_path if findings_path else 'Not found'}`")
     st.markdown(f"**CVE findings:** `{cve_path if cve_path else 'Not found'}`")
     st.markdown(f"**Assessment summary:** `{summary_path if summary_path else 'Not found'}`")
     st.markdown(f"**Graph JSON:** `{graph_path if graph_path else 'Not found'}`")

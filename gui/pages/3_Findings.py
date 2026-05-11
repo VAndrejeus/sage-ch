@@ -21,7 +21,7 @@ from services.report_service import build_system_pdf_report
 render_sidebar()
 
 st.title("Findings")
-st.caption("Filter and review CIS-mapped configuration findings and CVE-based vulnerability findings.")
+st.caption("Filter and review CIS-mapped assessment findings and CVE-based vulnerability findings.")
 
 top_bar = st.container(border=True)
 with top_bar:
@@ -118,7 +118,7 @@ with overview_box:
 
     m1, m2, m3, m4 = st.columns(4)
     m1.metric("Total Findings", len(findings_df))
-    m2.metric("Configuration", len(configuration_df))
+    m2.metric("CIS Findings", len(configuration_df))
     m3.metric("CVE Findings", len(vulnerability_df))
     m4.metric("Affected Hosts", findings_df["hostname"].nunique() if "hostname" in findings_df.columns else 0)
 
@@ -126,11 +126,12 @@ cve_box = st.container(border=True)
 with cve_box:
     st.subheader("CVE Intelligence")
 
-    c1, c2, c3, c4 = st.columns(4)
-    c1.metric("CVE Findings", cve_summary.get("total_findings", 0))
-    c2.metric("Products With CVEs", cve_summary.get("products_with_findings", 0))
-    c3.metric("Filtered CVEs", cve_summary.get("total_cves_after_filter", 0))
-    c4.metric("Min CVSS", cve_summary.get("min_cvss_score", "N/A"))
+    c1, c2, c3, c4, c5 = st.columns(5)
+    c1.metric("Software Entries", cve_summary.get("total_software", 0))
+    c2.metric("CVE Findings", cve_summary.get("total_findings", 0))
+    c3.metric("Products With CVEs", cve_summary.get("products_with_findings", 0))
+    c4.metric("Filtered CVEs", cve_summary.get("total_cves_after_filter", 0))
+    c5.metric("Min CVSS", cve_summary.get("min_cvss_score", "N/A"))
 
 report_box = st.container(border=True)
 with report_box:
@@ -138,7 +139,7 @@ with report_box:
 
     with left:
         st.subheader("Export System Report")
-        st.caption("Generate a PDF report covering all hosts, configuration findings, and CVE findings.")
+        st.caption("Generate a PDF report covering all hosts, CIS findings, and CVE findings.")
 
     with right:
         try:
@@ -199,7 +200,8 @@ with summary_box:
 
     filtered_vulns = filtered_df[filtered_df["finding_type"] == "Vulnerability"] if "finding_type" in filtered_df.columns else filtered_df.iloc[0:0]
     s1, s2, s3, s4 = st.columns(4)
-    s1.metric("Filtered Findings", len(filtered_df))
+    filtered_cis = filtered_df[filtered_df["finding_type"] != "Vulnerability"] if "finding_type" in filtered_df.columns else filtered_df
+    s1.metric("Filtered CIS Findings", len(filtered_cis))
     s2.metric("Affected Hosts", filtered_df["hostname"].nunique() if "hostname" in filtered_df.columns else 0)
     s3.metric("CVE Findings", len(filtered_vulns))
     s4.metric("Categories", filtered_df["category"].nunique() if "category" in filtered_df.columns else 0)
@@ -207,6 +209,7 @@ with summary_box:
 table_box = st.container(border=True)
 with table_box:
     st.subheader("Findings Table")
+    st.caption("CIS Findings are rule-based assessment findings mapped to CIS Controls. CVE Findings are vulnerability findings from NVD correlation.")
 
     display_cols = [
         c

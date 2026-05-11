@@ -33,6 +33,16 @@ findings_df, findings_path = load_latest_findings_df()
 assessment_summary, summary_path = load_latest_assessment_summary_payload()
 graph_counts, graph_path = load_graph_counts_from_consolidated()
 metrics = build_dashboard_metrics(hosts_df, findings_df, assessment_summary)
+vulnerability_df = (
+    findings_df[findings_df["finding_type"] == "Vulnerability"].copy()
+    if not findings_df.empty and "finding_type" in findings_df.columns
+    else findings_df.iloc[0:0].copy()
+)
+cis_findings_df = (
+    findings_df[findings_df["finding_type"] != "Vulnerability"].copy()
+    if not findings_df.empty and "finding_type" in findings_df.columns
+    else findings_df.copy()
+)
 
 graph_persistence_status = graph_counts.get("graph_persistence_status", "unknown")
 batch_id = assessment_summary.get("batch_id", "N/A") if assessment_summary else "N/A"
@@ -53,12 +63,18 @@ with hero:
 
 overview = st.container(border=True)
 with overview:
-    m1, m2, m3, m4, m5 = st.columns(5)
+    m1, m2, m3, m4, m5, m6 = st.columns(6)
     m1.metric("Hosts", metrics["total_hosts"])
-    m2.metric("Findings", metrics["total_findings"])
-    m3.metric("Critical", metrics["severity_counts"].get("critical", 0))
+    m2.metric("CIS Findings", len(cis_findings_df))
+    m3.metric(
+        "CIS Critical",
+        int((cis_findings_df["severity"].astype(str).str.lower() == "critical").sum())
+        if not cis_findings_df.empty and "severity" in cis_findings_df.columns
+        else 0,
+    )
     m4.metric("Graph", graph_persistence_status)
-    m5.metric("Batch", batch_id)
+    m5.metric("CVE Findings", len(vulnerability_df))
+    m6.metric("Batch", batch_id)
 
 main_left, main_right = st.columns([1, 1])
 
@@ -68,15 +84,15 @@ with main_left:
         st.subheader("Primary Workflow")
         st.write("1. Run collector from Actions.")
         st.write("2. Confirm status in Pipeline Health.")
-        st.write("3. Review posture on Dashboard.")
-        st.write("4. Inspect hosts, findings, and graph relationships.")
+        st.write("3. Review CIS findings and CVE findings on Dashboard.")
+        st.write("4. Inspect hosts, findings, controls, and graph relationships.")
 
 with main_right:
     health = st.container(border=True)
     with health:
         st.subheader("Data Sources")
         st.write(f"Hosts: `{hosts_path.name if hosts_path else 'Not found'}`")
-        st.write(f"Findings: `{findings_path.name if findings_path else 'Not found'}`")
+        st.write(f"CIS findings: `{findings_path.name if findings_path else 'Not found'}`")
         st.write(f"Summary: `{summary_path.name if summary_path else 'Not found'}`")
         st.write(f"Graph: `{graph_path.name if graph_path else 'Not found'}`")
 
